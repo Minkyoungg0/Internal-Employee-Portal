@@ -10,12 +10,18 @@ import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.web.servlet.MockMvc;
 import com.bitcomputer.employeeportal.config.SecurityConfig;
+import com.bitcomputer.employeeportal.auth.CurrentAccountStatusFilter;
+import com.bitcomputer.employeeportal.auth.EmployeeAccountRepository;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 @WebMvcTest(HealthController.class)
-@Import(SecurityConfig.class)
+@Import({SecurityConfig.class, CurrentAccountStatusFilter.class})
 class HealthControllerTest {
     @Autowired
     MockMvc mockMvc;
+
+    @MockitoBean
+    EmployeeAccountRepository accountRepository;
 
     @Test
     void returnsHealthWithoutAuthentication() throws Exception {
@@ -24,4 +30,3 @@ class HealthControllerTest {
                 .andExpect(jsonPath("$.status").value("ok"));
     }
 }
-
