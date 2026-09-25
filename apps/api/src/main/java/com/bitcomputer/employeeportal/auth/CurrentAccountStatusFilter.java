@@ -54,7 +54,9 @@ public class CurrentAccountStatusFilter extends OncePerRequestFilter {
             return;
         }
 
-        if (account.isPasswordChangeRequired() && !passwordChangeAllowed(request.getRequestURI())) {
+        if (account.getRole() == AccountRole.EMPLOYEE
+                && account.isPasswordChangeRequired()
+                && !passwordChangeAllowed(request.getRequestURI())) {
             writeForbidden(response, "PASSWORD_CHANGE_REQUIRED", "초기 비밀번호를 변경해야 합니다.");
             return;
         }

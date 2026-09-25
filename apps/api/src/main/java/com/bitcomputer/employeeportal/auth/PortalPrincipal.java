@@ -32,7 +32,8 @@ public final class PortalPrincipal implements UserDetails, CredentialsContainer,
         this.username = account.getUsername();
         this.role = account.getRole();
         this.accountEnabled = account.isEnabled();
-        this.passwordChangeRequired = account.isPasswordChangeRequired();
+        this.passwordChangeRequired = account.getRole() == AccountRole.EMPLOYEE
+                && account.isPasswordChangeRequired();
         this.employmentStatus = account.getEmployee().getEmploymentStatus();
         this.password = password;
     }

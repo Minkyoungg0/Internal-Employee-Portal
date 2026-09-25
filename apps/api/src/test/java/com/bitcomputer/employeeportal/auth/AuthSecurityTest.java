@@ -125,6 +125,33 @@ class AuthSecurityTest {
     }
 
     @Test
+    void adminIsNotForcedToChangeInitialPassword() throws Exception {
+        account = new EmployeeAccount(
+                employee,
+                "admin",
+                passwordEncoder.encode(PASSWORD),
+                AccountRole.ADMIN,
+                true
+        );
+        ReflectionTestUtils.setField(account, "id", 20L);
+        ReflectionTestUtils.setField(account, "passwordChangeRequired", true);
+        when(accountRepository.findWithEmployeeByUsername("admin")).thenReturn(Optional.of(account));
+        when(accountRepository.findWithEmployeeById(20L)).thenReturn(Optional.of(account));
+
+        MvcResult result = mockMvc.perform(post("/api/auth/login")
+                        .with(csrf())
+                        .param("username", "admin")
+                        .param("password", PASSWORD))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.passwordChangeRequired").value(false))
+                .andReturn();
+        MockHttpSession session = (MockHttpSession) result.getRequest().getSession(false);
+
+        mockMvc.perform(get("/api/admin/employees").session(session))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
     void blocksExistingSessionAfterEmployeeIsTerminated() throws Exception {
         MockHttpSession session = login();
         employee.terminate();
