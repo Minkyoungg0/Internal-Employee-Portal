@@ -6,6 +6,9 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface EmployeeAccountRepository extends JpaRepository<EmployeeAccount, Long> {
+    boolean existsByUsername(String username);
+
+    Optional<EmployeeAccount> findByEmployeeId(Long employeeId);
     @Query("select account from EmployeeAccount account join fetch account.employee where account.username = :username")
     Optional<EmployeeAccount> findWithEmployeeByUsername(@Param("username") String username);
 

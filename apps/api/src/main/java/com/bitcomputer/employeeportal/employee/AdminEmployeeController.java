@@ -1,0 +1,117 @@
+package com.bitcomputer.employeeportal.employee;
+
+import com.bitcomputer.employeeportal.auth.AccountRole;
+import com.bitcomputer.employeeportal.auth.EmployeeAccount;
+import com.bitcomputer.employeeportal.auth.EmployeeAccountRepository;
+import com.bitcomputer.employeeportal.common.ApiException;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
+import java.time.Clock;
+import java.time.LocalDate;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.util.List;
+import org.springframework.http.HttpStatus;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.ResponseStatus;
+
+@RestController
+@RequestMapping("/api/admin/employees")
+public class AdminEmployeeController {
+    private final EmployeeRepository employeeRepository;
+    private final EmployeeAccountRepository accountRepository;
+    private final PasswordEncoder passwordEncoder;
+    private final Clock clock = Clock.systemUTC();
+
+    public AdminEmployeeController(EmployeeRepository employeeRepository, EmployeeAccountRepository accountRepository,
+                                   PasswordEncoder passwordEncoder) {
+        this.employeeRepository = employeeRepository;
+        this.accountRepository = accountRepository;
+        this.passwordEncoder = passwordEncoder;
+    }
+
+    @PostMapping
+    @ResponseStatus(HttpStatus.CREATED)
+    @Transactional
+    EmployeeDetail create(@Valid @RequestBody CreateEmployeeRequest request) {
+        if (employeeRepository.existsByEmployeeNumber(request.employeeNumber()))
+            throw new ApiException(HttpStatus.CONFLICT, "EMPLOYEE_NUMBER_DUPLICATED", "이미 사용 중인 사번입니다.");
+        if (accountRepository.existsByUsername(request.username()))
+            throw new ApiException(HttpStatus.CONFLICT, "USERNAME_DUPLICATED", "이미 사용 중인 아이디입니다.");
+        Employee employee = employeeRepository.save(new Employee(request.employeeNumber(), request.lastName(),
+                request.firstName(), request.dateOfBirth(), EmploymentStatus.ACTIVE));
+        EmployeeAccount account = accountRepository.save(new EmployeeAccount(employee, request.username(),
+                passwordEncoder.encode(request.initialPassword()), AccountRole.EMPLOYEE, true));
+        return EmployeeDetail.from(employee, account);
+    }
+
+    @GetMapping
+    List<EmployeeSummary> list() {
+        return employeeRepository.findAllByOrderByEmployeeNumberAsc().stream().map(EmployeeSummary::from).toList();
+    }
+
+    @GetMapping("/{id}")
+    EmployeeDetail detail(@PathVariable Long id) {
+        Employee employee = findEmployee(id);
+        EmployeeAccount account = accountRepository.findByEmployeeId(id).orElse(null);
+        return EmployeeDetail.from(employee, account);
+    }
+
+    @PostMapping("/{id}/termination")
+    @Transactional
+    EmployeeDetail terminate(@PathVariable Long id, @Valid @RequestBody TerminationRequest request) {
+        Employee employee = employeeRepository.findByIdForUpdate(id)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "EMPLOYEE_NOT_FOUND", "직원을 찾을 수 없습니다."));
+        EmployeeAccount account = accountRepository.findByEmployeeId(id).orElse(null);
+        if (employee.getEmploymentStatus() == EmploymentStatus.ACTIVE) {
+            employee.terminate(request.terminationDate(), Instant.now(clock).truncatedTo(ChronoUnit.MICROS));
+            if (account != null) account.disable();
+        }
+        return EmployeeDetail.from(employee, account);
+    }
+
+    private Employee findEmployee(Long id) {
+        return employeeRepository.findById(id)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "EMPLOYEE_NOT_FOUND", "직원을 찾을 수 없습니다."));
+    }
+
+    public record CreateEmployeeRequest(
+            @NotBlank @Pattern(regexp = "EMP-[0-9]{3,}", message = "사번은 EMP-001 형식이어야 합니다.") String employeeNumber,
+            @NotBlank @Size(max = 50) String lastName,
+            @NotBlank @Size(max = 50) String firstName,
+            LocalDate dateOfBirth,
+            @NotBlank @Size(max = 100) String username,
+            @NotBlank @Size(min = 8, max = 72, message = "초기 비밀번호는 8자 이상 72자 이하여야 합니다.") String initialPassword
+    ) {}
+
+    public record TerminationRequest(@NotNull(message = "실제 퇴사일을 입력해 주세요.") LocalDate terminationDate) {}
+
+    public record EmployeeSummary(Long id, String employeeNumber, String fullName, LocalDate dateOfBirth,
+                                  EmploymentStatus employmentStatus) {
+        static EmployeeSummary from(Employee e) {
+            return new EmployeeSummary(e.getId(), e.getEmployeeNumber(), e.getFullName(), e.getDateOfBirth(), e.getEmploymentStatus());
+        }
+    }
+
+    public record EmployeeDetail(Long id, String employeeNumber, String lastName, String firstName, String fullName,
+                                 LocalDate dateOfBirth, EmploymentStatus employmentStatus, LocalDate terminationDate,
+                                 Instant terminatedAt, Account account) {
+        static EmployeeDetail from(Employee e, EmployeeAccount a) {
+            return new EmployeeDetail(e.getId(), e.getEmployeeNumber(), e.getLastName(), e.getFirstName(), e.getFullName(),
+                    e.getDateOfBirth(), e.getEmploymentStatus(), e.getTerminationDate(), e.getTerminatedAt(),
+                    a == null ? null : new Account(a.getUsername(), a.getRole(), a.isEnabled(), a.isPasswordChangeRequired()));
+        }
+    }
+
+    public record Account(String username, AccountRole role, boolean enabled, boolean passwordChangeRequired) {}
+}

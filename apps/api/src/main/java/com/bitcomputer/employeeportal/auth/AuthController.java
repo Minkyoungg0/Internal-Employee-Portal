@@ -27,7 +27,8 @@ public class AuthController {
             Long employeeId,
             String employeeNumber,
             String username,
-            AccountRole role
+            AccountRole role,
+            boolean passwordChangeRequired
     ) {
         public static CurrentUserResponse from(PortalPrincipal principal) {
             return new CurrentUserResponse(
@@ -35,7 +36,8 @@ public class AuthController {
                     principal.employeeId(),
                     principal.employeeNumber(),
                     principal.getUsername(),
-                    principal.role()
+                    principal.role(),
+                    principal.passwordChangeRequired()
             );
         }
     }

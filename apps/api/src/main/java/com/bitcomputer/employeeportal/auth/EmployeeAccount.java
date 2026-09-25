@@ -37,6 +37,9 @@ public class EmployeeAccount {
     @Column(nullable = false)
     private boolean enabled;
 
+    @Column(name = "password_change_required", nullable = false)
+    private boolean passwordChangeRequired;
+
     protected EmployeeAccount() {
     }
 
@@ -46,6 +49,7 @@ public class EmployeeAccount {
         this.passwordHash = passwordHash;
         this.role = role;
         this.enabled = enabled;
+        this.passwordChangeRequired = true;
     }
 
     public Long getId() {
@@ -70,6 +74,13 @@ public class EmployeeAccount {
 
     public boolean isEnabled() {
         return enabled;
+    }
+
+    public boolean isPasswordChangeRequired() { return passwordChangeRequired; }
+
+    public void changePassword(String passwordHash) {
+        this.passwordHash = passwordHash;
+        this.passwordChangeRequired = false;
     }
 
     public void disable() {

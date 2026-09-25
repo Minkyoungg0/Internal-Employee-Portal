@@ -57,6 +57,7 @@ class AuthSecurityTest {
                 true
         );
         ReflectionTestUtils.setField(account, "id", 10L);
+        ReflectionTestUtils.setField(account, "passwordChangeRequired", false);
         when(accountRepository.findWithEmployeeByUsername("employee")).thenReturn(Optional.of(account));
         when(accountRepository.findWithEmployeeById(10L)).thenReturn(Optional.of(account));
     }
@@ -111,6 +112,16 @@ class AuthSecurityTest {
         mockMvc.perform(get("/api/admin/employees").session(session))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("ACCESS_DENIED"));
+    }
+
+    @Test
+    void initialPasswordMustBeChangedBeforeUsingProtectedFeatures() throws Exception {
+        ReflectionTestUtils.setField(account, "passwordChangeRequired", true);
+        MockHttpSession session = login();
+
+        mockMvc.perform(get("/api/me/profile").session(session))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("PASSWORD_CHANGE_REQUIRED"));
     }
 
     @Test

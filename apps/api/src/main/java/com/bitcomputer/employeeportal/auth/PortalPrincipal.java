@@ -21,6 +21,7 @@ public final class PortalPrincipal implements UserDetails, CredentialsContainer,
     private final String username;
     private final AccountRole role;
     private final boolean accountEnabled;
+    private final boolean passwordChangeRequired;
     private final EmploymentStatus employmentStatus;
     private String password;
 
@@ -31,6 +32,7 @@ public final class PortalPrincipal implements UserDetails, CredentialsContainer,
         this.username = account.getUsername();
         this.role = account.getRole();
         this.accountEnabled = account.isEnabled();
+        this.passwordChangeRequired = account.isPasswordChangeRequired();
         this.employmentStatus = account.getEmployee().getEmploymentStatus();
         this.password = password;
     }
@@ -58,6 +60,8 @@ public final class PortalPrincipal implements UserDetails, CredentialsContainer,
     public AccountRole role() {
         return role;
     }
+
+    public boolean passwordChangeRequired() { return passwordChangeRequired; }
 
     @Override
     public Collection<? extends GrantedAuthority> getAuthorities() {
