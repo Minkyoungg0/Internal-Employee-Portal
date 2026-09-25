@@ -41,15 +41,15 @@ class BackgroundCheckServiceTest {
         when(employeeRepository.findById(3L)).thenReturn(Optional.of(employee));
         when(repository.existsByEmployeeIdAndStatusIn(any(), any())).thenReturn(false);
         when(repository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
-        when(client.create("EMP-003", "서준", "남궁", LocalDate.of(1988, 7, 21)))
+        when(client.create(null, 3L, "EMP-003", "서준", "남궁", LocalDate.of(1988, 7, 21)))
                 .thenReturn(new ExternalBackgroundCheck("CHK-1", "EMP-003", "pending", null, null, null, null, null));
 
-        BackgroundCheck result = service.start(3L);
+        BackgroundCheck result = service.start(3L, 2L);
 
         assertEquals(BackgroundCheckStatus.PENDING, result.getStatus());
         assertEquals("남궁", result.getSubmittedLastName());
         assertEquals("서준", result.getSubmittedFirstName());
-        verify(client).create("EMP-003", "서준", "남궁", LocalDate.of(1988, 7, 21));
+        verify(client).create(null, 3L, "EMP-003", "서준", "남궁", LocalDate.of(1988, 7, 21));
     }
 
     @Test
@@ -58,10 +58,10 @@ class BackgroundCheckServiceTest {
         ReflectionTestUtils.setField(employee, "id", 7L);
         when(employeeRepository.findById(7L)).thenReturn(Optional.of(employee));
 
-        ApiException exception = assertThrows(ApiException.class, () -> service.start(7L));
+        ApiException exception = assertThrows(ApiException.class, () -> service.start(7L, 2L));
 
         assertEquals("DATE_OF_BIRTH_REQUIRED", exception.getCode());
-        verify(client, never()).create(any(), any(), any(), any());
+        verify(client, never()).create(any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -70,9 +70,9 @@ class BackgroundCheckServiceTest {
         check.submitted(new ExternalBackgroundCheck("CHK-1", "EMP-003", "clear", false, true, true, "good", Instant.now()), Instant.now());
         when(repository.findByIdAndEmployeeId(8L, 3L)).thenReturn(Optional.of(check));
 
-        BackgroundCheck result = service.refresh(3L, 8L);
+        BackgroundCheck result = service.refresh(3L, 8L, 2L);
 
         assertEquals(BackgroundCheckStatus.CLEAR, result.getStatus());
-        verify(client, never()).get(any());
+        verify(client, never()).get(any(), any(), any());
     }
 }

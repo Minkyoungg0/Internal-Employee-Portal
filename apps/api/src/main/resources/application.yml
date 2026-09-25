@@ -27,6 +27,10 @@ management:
       exposure:
         include: health
 
+logging:
+  level:
+    com.bitcomputer.employeeportal.backgroundcheck: INFO
+
 background-check:
   base-url: ${BACKGROUND_CHECK_BASE_URL:https://54capvm12g.execute-api.ap-northeast-2.amazonaws.com}
   candidate-key: ${BACKGROUND_CHECK_CANDIDATE_KEY:not-configured}

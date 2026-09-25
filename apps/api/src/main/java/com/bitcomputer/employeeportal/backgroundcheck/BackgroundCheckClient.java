@@ -11,11 +11,15 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.concurrent.TimeUnit;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 @Component
 public class BackgroundCheckClient {
+    private static final Logger log = LoggerFactory.getLogger(BackgroundCheckClient.class);
     private final String baseUrl;
     private final String candidateKey;
     private final ObjectMapper objectMapper;
@@ -41,7 +45,7 @@ public class BackgroundCheckClient {
         this.retry503DefaultDelay = retry503DefaultDelay;
     }
 
-    public ExternalBackgroundCheck create(String employeeNumber, String firstName, String lastName,
+    public ExternalBackgroundCheck create(Long checkId, Long employeeId, String employeeNumber, String firstName, String lastName,
                                           java.time.LocalDate dateOfBirth) throws IOException, InterruptedException {
         String body = objectMapper.writeValueAsString(new CreateRequest(employeeNumber, firstName, lastName, dateOfBirth));
         HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl + "/background-checks"))
@@ -49,24 +53,88 @@ public class BackgroundCheckClient {
                 .header("Content-Type", "application/json")
                 .header("X-Candidate-Key", candidateKey)
                 .POST(HttpRequest.BodyPublishers.ofString(body)).build();
-        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-        if (response.statusCode() != 201) throw new ExternalHttpException(response.statusCode(), response.body());
-        return parse(response.body());
+        long startedAt = System.nanoTime();
+        try {
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            long latencyMs = elapsedMillis(startedAt);
+            if (response.statusCode() != 201) {
+                log.warn("BACKGROUND_CHECK_POST_COMPLETED checkId={} employeeId={} httpStatus={} latencyMs={} outcome=FAILED",
+                        checkId, employeeId, response.statusCode(), latencyMs);
+                throw new ExternalHttpException(response.statusCode(), response.body());
+            }
+            try {
+                ExternalBackgroundCheck result = parse(response.body());
+                log.info("BACKGROUND_CHECK_POST_COMPLETED checkId={} employeeId={} httpStatus={} latencyMs={} status={} outcome=SUCCESS",
+                        checkId, employeeId, response.statusCode(), latencyMs, result.status());
+                return result;
+            } catch (IOException exception) {
+                log.error("BACKGROUND_CHECK_POST_INVALID_RESPONSE checkId={} employeeId={} httpStatus={} latencyMs={}",
+                        checkId, employeeId, response.statusCode(), latencyMs);
+                throw exception;
+            }
+        } catch (IOException exception) {
+            if (!(exception instanceof ExternalHttpException)) {
+                log.warn("BACKGROUND_CHECK_POST_IO_ERROR checkId={} employeeId={} latencyMs={} errorType={}",
+                        checkId, employeeId, elapsedMillis(startedAt), exception.getClass().getSimpleName());
+            }
+            throw exception;
+        } catch (InterruptedException exception) {
+            log.warn("BACKGROUND_CHECK_POST_INTERRUPTED checkId={} employeeId={} latencyMs={}",
+                    checkId, employeeId, elapsedMillis(startedAt));
+            throw exception;
+        }
     }
 
-    public ExternalBackgroundCheck get(String checkId) throws IOException, InterruptedException {
+    public ExternalBackgroundCheck get(Long checkId, Long employeeId, String externalCheckId) throws IOException, InterruptedException {
         int attempts = 0;
         while (true) {
             attempts++;
+            long startedAt = System.nanoTime();
             HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl + "/background-checks/" +
-                            URLEncoder.encode(checkId, StandardCharsets.UTF_8)))
+                            URLEncoder.encode(externalCheckId, StandardCharsets.UTF_8)))
                     .timeout(getTimeout).header("X-Candidate-Key", candidateKey).GET().build();
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() == 200) return parse(response.body());
-            if ((response.statusCode() != 500 && response.statusCode() != 503) || attempts >= getMaxAttempts)
-                throw new ExternalHttpException(response.statusCode(), response.body());
-            Thread.sleep(response.statusCode() == 500 ? retry500Delay.toMillis() : retryAfter(response).toMillis());
+            try {
+                HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+                long latencyMs = elapsedMillis(startedAt);
+                if (response.statusCode() == 200) {
+                    try {
+                        ExternalBackgroundCheck result = parse(response.body());
+                        log.info("BACKGROUND_CHECK_GET_COMPLETED checkId={} employeeId={} externalCheckId={} attempt={} httpStatus={} latencyMs={} status={} outcome=SUCCESS",
+                                checkId, employeeId, externalCheckId, attempts, response.statusCode(), latencyMs, result.status());
+                        return result;
+                    } catch (IOException exception) {
+                        log.error("BACKGROUND_CHECK_GET_INVALID_RESPONSE checkId={} employeeId={} externalCheckId={} attempt={} httpStatus={} latencyMs={}",
+                                checkId, employeeId, externalCheckId, attempts, response.statusCode(), latencyMs);
+                        throw exception;
+                    }
+                }
+                boolean retryable = (response.statusCode() == 500 || response.statusCode() == 503)
+                        && attempts < getMaxAttempts;
+                if (!retryable) {
+                    log.warn("BACKGROUND_CHECK_GET_COMPLETED checkId={} employeeId={} externalCheckId={} attempt={} httpStatus={} latencyMs={} outcome=FAILED",
+                            checkId, employeeId, externalCheckId, attempts, response.statusCode(), latencyMs);
+                    throw new ExternalHttpException(response.statusCode(), response.body());
+                }
+                Duration retryDelay = response.statusCode() == 500 ? retry500Delay : retryAfter(response);
+                log.warn("BACKGROUND_CHECK_GET_RETRY checkId={} employeeId={} externalCheckId={} attempt={} httpStatus={} latencyMs={} retryDelaySeconds={} outcome=RETRY",
+                        checkId, employeeId, externalCheckId, attempts, response.statusCode(), latencyMs, retryDelay.toSeconds());
+                Thread.sleep(retryDelay.toMillis());
+            } catch (IOException exception) {
+                if (!(exception instanceof ExternalHttpException)) {
+                    log.warn("BACKGROUND_CHECK_GET_IO_ERROR checkId={} employeeId={} externalCheckId={} attempt={} latencyMs={} errorType={}",
+                            checkId, employeeId, externalCheckId, attempts, elapsedMillis(startedAt), exception.getClass().getSimpleName());
+                }
+                throw exception;
+            } catch (InterruptedException exception) {
+                log.warn("BACKGROUND_CHECK_GET_INTERRUPTED checkId={} employeeId={} externalCheckId={} attempt={} latencyMs={}",
+                        checkId, employeeId, externalCheckId, attempts, elapsedMillis(startedAt));
+                throw exception;
+            }
         }
+    }
+
+    private long elapsedMillis(long startedAt) {
+        return TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt);
     }
 
     private Duration retryAfter(HttpResponse<String> response) {

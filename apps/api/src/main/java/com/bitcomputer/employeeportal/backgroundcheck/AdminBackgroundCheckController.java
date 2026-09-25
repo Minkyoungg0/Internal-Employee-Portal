@@ -1,9 +1,13 @@
 package com.bitcomputer.employeeportal.backgroundcheck;
 
+import com.bitcomputer.employeeportal.auth.PortalPrincipal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import org.springframework.http.HttpStatus;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -14,14 +18,15 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/admin/employees/{employeeId}/background-checks")
 public class AdminBackgroundCheckController {
+    private static final Logger log = LoggerFactory.getLogger(AdminBackgroundCheckController.class);
     private final BackgroundCheckService service;
 
     public AdminBackgroundCheckController(BackgroundCheckService service) { this.service = service; }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    BackgroundCheckResponse start(@PathVariable Long employeeId) {
-        return BackgroundCheckResponse.from(service.start(employeeId), true);
+    BackgroundCheckResponse start(@PathVariable Long employeeId, @AuthenticationPrincipal PortalPrincipal principal) {
+        return BackgroundCheckResponse.from(service.start(employeeId, principal.accountId()), true);
     }
 
     @GetMapping
@@ -30,13 +35,17 @@ public class AdminBackgroundCheckController {
     }
 
     @GetMapping("/{checkId}")
-    BackgroundCheckResponse detail(@PathVariable Long employeeId, @PathVariable Long checkId) {
+    BackgroundCheckResponse detail(@PathVariable Long employeeId, @PathVariable Long checkId,
+                                   @AuthenticationPrincipal PortalPrincipal principal) {
+        log.info("BACKGROUND_CHECK_RESULT_VIEWED checkId={} employeeId={} actorAccountId={}",
+                checkId, employeeId, principal.accountId());
         return BackgroundCheckResponse.from(service.find(employeeId, checkId), true);
     }
 
     @PostMapping("/{checkId}/refresh")
-    BackgroundCheckResponse refresh(@PathVariable Long employeeId, @PathVariable Long checkId) {
-        return BackgroundCheckResponse.from(service.refresh(employeeId, checkId), true);
+    BackgroundCheckResponse refresh(@PathVariable Long employeeId, @PathVariable Long checkId,
+                                    @AuthenticationPrincipal PortalPrincipal principal) {
+        return BackgroundCheckResponse.from(service.refresh(employeeId, checkId, principal.accountId()), true);
     }
 
     record BackgroundCheckResponse(Long id, String externalCheckId, String submittedFirstName,
