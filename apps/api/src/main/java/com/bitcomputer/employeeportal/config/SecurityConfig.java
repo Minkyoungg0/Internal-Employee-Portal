@@ -1,9 +1,9 @@
 package com.bitcomputer.employeeportal.config;
 
-import com.bitcomputer.employeeportal.auth.AuthController.CurrentUserResponse;
 import com.bitcomputer.employeeportal.auth.CurrentAccountStatusFilter;
 import com.bitcomputer.employeeportal.auth.EmployeeAccountRepository;
 import com.bitcomputer.employeeportal.auth.PortalPrincipal;
+import com.bitcomputer.employeeportal.auth.dto.CurrentUserResponse;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
@@ -16,9 +16,9 @@ import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.access.intercept.AuthorizationFilter;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.security.web.session.HttpSessionEventPublisher;
-import org.springframework.security.web.access.intercept.AuthorizationFilter;
 
 @Configuration
 public class SecurityConfig {

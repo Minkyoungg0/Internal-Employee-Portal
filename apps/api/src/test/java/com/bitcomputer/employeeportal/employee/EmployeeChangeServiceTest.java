@@ -1,5 +1,15 @@
 package com.bitcomputer.employeeportal.employee;
 
+import com.bitcomputer.employeeportal.employee.change.EmployeeChangeService;
+
+import com.bitcomputer.employeeportal.employee.change.EmployeeChangeHistory;
+
+import com.bitcomputer.employeeportal.employee.change.EmployeeChangeStatus;
+
+import com.bitcomputer.employeeportal.employee.change.EmployeeChangeResponse;
+
+import com.bitcomputer.employeeportal.employee.change.EmployeeChangeHistoryRepository;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;

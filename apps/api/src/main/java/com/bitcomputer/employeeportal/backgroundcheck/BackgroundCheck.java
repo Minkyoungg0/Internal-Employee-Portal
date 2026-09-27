@@ -1,5 +1,6 @@
 package com.bitcomputer.employeeportal.backgroundcheck;
 
+import com.bitcomputer.employeeportal.backgroundcheck.client.ExternalBackgroundCheck;
 import com.bitcomputer.employeeportal.employee.Employee;
 import jakarta.persistence.*;
 import java.time.Instant;

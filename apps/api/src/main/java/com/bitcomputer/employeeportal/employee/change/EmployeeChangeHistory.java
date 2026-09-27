@@ -1,5 +1,6 @@
-package com.bitcomputer.employeeportal.employee;
+package com.bitcomputer.employeeportal.employee.change;
 
+import com.bitcomputer.employeeportal.employee.Employee;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;

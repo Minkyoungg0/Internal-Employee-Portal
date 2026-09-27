@@ -1,4 +1,4 @@
-package com.bitcomputer.employeeportal.backgroundcheck;
+package com.bitcomputer.employeeportal.backgroundcheck.client;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -157,7 +157,7 @@ public class BackgroundCheckClient {
     public static class ExternalHttpException extends IOException {
         private final int status;
         private final Duration retryDelay;
-        ExternalHttpException(int status, Duration retryDelay) {
+        public ExternalHttpException(int status, Duration retryDelay) {
             super("Background Check API HTTP " + status);
             this.status = status;
             this.retryDelay = retryDelay;

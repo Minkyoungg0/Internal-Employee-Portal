@@ -1,5 +1,9 @@
 package com.bitcomputer.employeeportal.backgroundcheck;
 
+import com.bitcomputer.employeeportal.backgroundcheck.client.ExternalBackgroundCheck;
+
+import com.bitcomputer.employeeportal.backgroundcheck.client.BackgroundCheckClient;
+
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 import com.bitcomputer.employeeportal.employee.*;

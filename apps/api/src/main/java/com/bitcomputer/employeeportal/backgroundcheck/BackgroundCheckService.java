@@ -1,5 +1,7 @@
 package com.bitcomputer.employeeportal.backgroundcheck;
 
+import com.bitcomputer.employeeportal.backgroundcheck.client.BackgroundCheckClient;
+import com.bitcomputer.employeeportal.backgroundcheck.client.ExternalBackgroundCheck;
 import com.bitcomputer.employeeportal.common.ApiException;
 import com.bitcomputer.employeeportal.employee.Employee;
 import com.bitcomputer.employeeportal.employee.EmployeeRepository;

@@ -1,4 +1,4 @@
-package com.bitcomputer.employeeportal.backgroundcheck;
+package com.bitcomputer.employeeportal.backgroundcheck.client;
 
 import java.time.Instant;
 

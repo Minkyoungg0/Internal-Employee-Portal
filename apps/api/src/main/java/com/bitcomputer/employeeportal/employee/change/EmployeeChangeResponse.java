@@ -1,5 +1,6 @@
-package com.bitcomputer.employeeportal.employee;
+package com.bitcomputer.employeeportal.employee.change;
 
+import com.bitcomputer.employeeportal.employee.Employee;
 import java.time.Instant;
 import java.time.LocalDate;
 

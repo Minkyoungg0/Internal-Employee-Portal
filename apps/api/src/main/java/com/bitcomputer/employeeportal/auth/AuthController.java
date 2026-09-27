@@ -1,5 +1,7 @@
 package com.bitcomputer.employeeportal.auth;
 
+import com.bitcomputer.employeeportal.auth.dto.CsrfResponse;
+import com.bitcomputer.employeeportal.auth.dto.CurrentUserResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -26,26 +28,4 @@ public class AuthController {
         return CurrentUserResponse.from(principal);
     }
 
-    public record CsrfResponse(String headerName, String parameterName, String token) {
-    }
-
-    public record CurrentUserResponse(
-            Long accountId,
-            Long employeeId,
-            String employeeNumber,
-            String username,
-            AccountRole role,
-            boolean passwordChangeRequired
-    ) {
-        public static CurrentUserResponse from(PortalPrincipal principal) {
-            return new CurrentUserResponse(
-                    principal.accountId(),
-                    principal.employeeId(),
-                    principal.employeeNumber(),
-                    principal.getUsername(),
-                    principal.role(),
-                    principal.passwordChangeRequired()
-            );
-        }
-    }
 }
