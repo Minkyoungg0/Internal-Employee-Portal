@@ -9,8 +9,20 @@ import org.springframework.data.repository.query.Param;
 
 public interface EmployeeChangeHistoryRepository extends JpaRepository<EmployeeChangeHistory, Long> {
     boolean existsByEmployeeIdAndStatus(Long employeeId, EmployeeChangeStatus status);
-    List<EmployeeChangeHistory> findAllByEmployeeIdOrderByRequestedAtDesc(Long employeeId);
-    List<EmployeeChangeHistory> findAllByOrderByRequestedAtDesc();
+    @Query("""
+            select history from EmployeeChangeHistory history
+            join fetch history.employee
+            where history.employee.id = :employeeId
+            order by history.requestedAt desc
+            """)
+    List<EmployeeChangeHistory> findAllByEmployeeIdWithEmployee(@Param("employeeId") Long employeeId);
+
+    @Query("""
+            select history from EmployeeChangeHistory history
+            join fetch history.employee
+            order by history.requestedAt desc
+            """)
+    List<EmployeeChangeHistory> findAllWithEmployee();
 
     @Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
     @Query("select history from EmployeeChangeHistory history join fetch history.employee where history.id = :id")

@@ -41,14 +41,13 @@ public class MeController {
     @ResponseStatus(HttpStatus.CREATED)
     EmployeeChangeResponse requestProfileChange(@AuthenticationPrincipal PortalPrincipal principal,
                                                 @Valid @RequestBody ProfileChangeRequest request) {
-        return EmployeeChangeResponse.from(changeService.request(principal.employeeId(), principal.accountId(),
-                request.lastName(), request.firstName(), request.dateOfBirth()));
+        return changeService.request(principal.employeeId(), principal.accountId(), request.lastName(),
+                request.firstName(), request.dateOfBirth());
     }
 
     @GetMapping("/profile-change-requests")
     List<EmployeeChangeResponse> profileChangeHistory(@AuthenticationPrincipal PortalPrincipal principal) {
-        return changeService.listForEmployee(principal.employeeId()).stream()
-                .map(EmployeeChangeResponse::from).toList();
+        return changeService.listForEmployee(principal.employeeId());
     }
 
     @GetMapping("/profile")

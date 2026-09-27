@@ -23,8 +23,8 @@ public class EmployeeChangeService {
     }
 
     @Transactional
-    public EmployeeChangeHistory request(Long employeeId, Long accountId, String lastName, String firstName,
-                                         LocalDate dateOfBirth) {
+    public EmployeeChangeResponse request(Long employeeId, Long accountId, String lastName, String firstName,
+                                          LocalDate dateOfBirth) {
         Employee employee = employeeRepository.findByIdForUpdate(employeeId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "EMPLOYEE_NOT_FOUND", "직원을 찾을 수 없습니다."));
         if (historyRepository.existsByEmployeeIdAndStatus(employeeId, EmployeeChangeStatus.PENDING)) {
@@ -34,22 +34,27 @@ public class EmployeeChangeService {
                 && Objects.equals(employee.getDateOfBirth(), dateOfBirth)) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "PERSONAL_INFORMATION_UNCHANGED", "변경된 인적사항이 없습니다.");
         }
-        return historyRepository.save(new EmployeeChangeHistory(employee, accountId, lastName, firstName,
-                dateOfBirth, now()));
+        EmployeeChangeHistory history = historyRepository.save(new EmployeeChangeHistory(employee, accountId,
+                lastName, firstName, dateOfBirth, now()));
+        return EmployeeChangeResponse.from(history);
     }
 
     @Transactional(readOnly = true)
-    public List<EmployeeChangeHistory> listForEmployee(Long employeeId) {
-        return historyRepository.findAllByEmployeeIdOrderByRequestedAtDesc(employeeId);
+    public List<EmployeeChangeResponse> listForEmployee(Long employeeId) {
+        return historyRepository.findAllByEmployeeIdWithEmployee(employeeId).stream()
+                .map(EmployeeChangeResponse::from)
+                .toList();
     }
 
     @Transactional(readOnly = true)
-    public List<EmployeeChangeHistory> listAll() {
-        return historyRepository.findAllByOrderByRequestedAtDesc();
+    public List<EmployeeChangeResponse> listAll() {
+        return historyRepository.findAllWithEmployee().stream()
+                .map(EmployeeChangeResponse::from)
+                .toList();
     }
 
     @Transactional
-    public EmployeeChangeHistory review(Long historyId, Long reviewerAccountId, boolean approve) {
+    public EmployeeChangeResponse review(Long historyId, Long reviewerAccountId, boolean approve) {
         EmployeeChangeHistory history = historyRepository.findByIdForUpdate(historyId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "CHANGE_REQUEST_NOT_FOUND", "변경 요청을 찾을 수 없습니다."));
         if (history.getStatus() != EmployeeChangeStatus.PENDING) {
@@ -57,7 +62,7 @@ public class EmployeeChangeService {
         }
         if (approve) history.approve(reviewerAccountId, now());
         else history.reject(reviewerAccountId, now());
-        return history;
+        return EmployeeChangeResponse.from(history);
     }
 
     private Instant now() {

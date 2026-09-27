@@ -35,10 +35,9 @@ class EmployeeChangeServiceTest {
                 LocalDate.of(1991, 4, 16), Instant.now());
         when(historyRepository.findByIdForUpdate(3L)).thenReturn(Optional.of(history));
 
-        EmployeeChangeHistory approved = service.review(3L, 20L, true);
+        EmployeeChangeResponse approved = service.review(3L, 20L, true);
 
-        assertThat(approved.getStatus()).isEqualTo(EmployeeChangeStatus.APPROVED);
-        assertThat(approved.getReviewedByAccountId()).isEqualTo(20L);
+        assertThat(approved.status()).isEqualTo(EmployeeChangeStatus.APPROVED);
         assertThat(employee.getFullName()).isEqualTo("이민준");
         assertThat(employee.getDateOfBirth()).isEqualTo(LocalDate.of(1991, 4, 16));
         verifyNoInteractions(employeeRepository);

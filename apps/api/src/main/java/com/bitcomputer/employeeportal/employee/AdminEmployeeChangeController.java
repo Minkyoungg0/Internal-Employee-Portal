@@ -20,16 +20,16 @@ public class AdminEmployeeChangeController {
 
     @GetMapping
     List<EmployeeChangeResponse> list() {
-        return service.listAll().stream().map(EmployeeChangeResponse::from).toList();
+        return service.listAll();
     }
 
     @PostMapping("/{id}/approve")
     EmployeeChangeResponse approve(@PathVariable Long id, @AuthenticationPrincipal PortalPrincipal principal) {
-        return EmployeeChangeResponse.from(service.review(id, principal.accountId(), true));
+        return service.review(id, principal.accountId(), true);
     }
 
     @PostMapping("/{id}/reject")
     EmployeeChangeResponse reject(@PathVariable Long id, @AuthenticationPrincipal PortalPrincipal principal) {
-        return EmployeeChangeResponse.from(service.review(id, principal.accountId(), false));
+        return service.review(id, principal.accountId(), false);
     }
 }
