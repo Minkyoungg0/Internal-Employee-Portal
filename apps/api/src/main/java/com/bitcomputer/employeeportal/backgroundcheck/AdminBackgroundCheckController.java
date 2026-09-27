@@ -42,23 +42,18 @@ public class AdminBackgroundCheckController {
         return BackgroundCheckResponse.from(service.find(employeeId, checkId), true);
     }
 
-    @PostMapping("/{checkId}/refresh")
-    BackgroundCheckResponse refresh(@PathVariable Long employeeId, @PathVariable Long checkId,
-                                    @AuthenticationPrincipal PortalPrincipal principal) {
-        return BackgroundCheckResponse.from(service.refresh(employeeId, checkId, principal.accountId()), true);
-    }
-
     record BackgroundCheckResponse(Long id, String externalCheckId, String submittedFirstName,
                                    String submittedLastName, LocalDate submittedDateOfBirth,
                                    BackgroundCheckStatus status, Result result, Instant requestedAt,
-                                   Instant completedAt, Instant lastCheckedAt) {
+                                   Instant completedAt, Instant lastCheckedAt, boolean trackingActive, String trackingStopReason) {
         static BackgroundCheckResponse from(BackgroundCheck check, boolean includeSensitiveResult) {
             Result result = includeSensitiveResult && check.getStatus().isFinal()
                     ? new Result(check.getCriminalRecord(), check.getEducationVerified(),
                     check.getEmploymentVerified(), check.getCreditScore()) : null;
             return new BackgroundCheckResponse(check.getId(), check.getExternalCheckId(),
                     check.getSubmittedFirstName(), check.getSubmittedLastName(), check.getSubmittedDateOfBirth(),
-                    check.getStatus(), result, check.getRequestedAt(), check.getCompletedAt(), check.getLastCheckedAt());
+                    check.getStatus(), result, check.getRequestedAt(), check.getCompletedAt(), check.getLastCheckedAt(),
+                    check.getNextPollAt() != null, check.getTrackingStopReason());
         }
     }
 

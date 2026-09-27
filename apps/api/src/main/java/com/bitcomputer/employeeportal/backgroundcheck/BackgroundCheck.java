@@ -30,6 +30,14 @@ public class BackgroundCheck {
     @Column(name = "completed_at") private Instant completedAt;
     @Column(name = "last_checked_at") private Instant lastCheckedAt;
 
+    @Column(name = "next_poll_at") private Instant nextPollAt;
+    @Column(name = "tracking_stop_reason", length = 100) private String trackingStopReason;
+
+    public Instant getNextPollAt() { return nextPollAt; }
+    public String getTrackingStopReason() { return trackingStopReason; }
+    public void schedulePoll(Instant when) { nextPollAt = when; trackingStopReason = null; }
+    public void stopTracking(String reason) { nextPollAt = null; trackingStopReason = reason; }
+
     protected BackgroundCheck() {}
 
     public BackgroundCheck(Employee employee, Instant now) {
@@ -44,6 +52,11 @@ public class BackgroundCheck {
     public void submitted(ExternalBackgroundCheck result, Instant checkedAt) {
         this.externalCheckId = result.checkId();
         apply(result, checkedAt);
+        // POST can report completion without detailed result fields.
+        if (result.criminalRecord() == null || result.educationVerified() == null
+                || result.employmentVerified() == null || result.creditScore() == null) {
+            schedulePoll(checkedAt.plusSeconds(15));
+        }
     }
 
     public void apply(ExternalBackgroundCheck result, Instant checkedAt) {
@@ -53,7 +66,12 @@ public class BackgroundCheck {
         } catch (IllegalArgumentException exception) {
             throw new IllegalStateException("알 수 없는 Background Check 상태입니다.", exception);
         }
+        if (received != BackgroundCheckStatus.PENDING && !received.isFinal()) {
+            throw new IllegalStateException("알 수 없는 외부 검사 상태입니다.");
+        }
         this.status = received;
+        nextPollAt = received == BackgroundCheckStatus.PENDING ? checkedAt.plusSeconds(15) : null;
+        trackingStopReason = null;
         this.lastCheckedAt = checkedAt;
         if (received.isFinal()) {
             criminalRecord = result.criminalRecord();

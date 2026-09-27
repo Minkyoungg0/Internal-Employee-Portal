@@ -78,7 +78,7 @@ public class BackgroundCheckService {
         log.info("BACKGROUND_CHECK_REFRESH_REQUESTED checkId={} employeeId={} actorAccountId={}",
                 checkId, employeeId, actorAccountId);
         BackgroundCheck check = find(employeeId, checkId);
-        if (check.getStatus().isFinal()) {
+        if (check.getStatus().isFinal() && check.getNextPollAt() == null) {
             log.info("BACKGROUND_CHECK_REFRESH_SKIPPED checkId={} employeeId={} actorAccountId={} status={} reason=ALREADY_FINAL",
                     checkId, employeeId, actorAccountId, check.getStatus());
             return check;
@@ -89,6 +89,9 @@ public class BackgroundCheckService {
         try {
             ExternalBackgroundCheck result = client.get(checkId, employeeId, check.getExternalCheckId());
             validateIdentity(check.getEmployee(), result);
+            if (!check.getExternalCheckId().equals(result.checkId())) {
+                throw new IOException("검사 식별자가 일치하지 않습니다.");
+            }
             check.apply(result, Instant.now());
             log.info("BACKGROUND_CHECK_STATUS_CHANGED checkId={} employeeId={} actorAccountId={} previousStatus={} newStatus={}",
                     checkId, employeeId, actorAccountId, previousStatus, check.getStatus());
