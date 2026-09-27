@@ -1,6 +1,8 @@
 package com.bitcomputer.employeeportal.employee;
 
 import com.bitcomputer.employeeportal.auth.AccountRole;
+import com.bitcomputer.employeeportal.backgroundcheck.BackgroundCheckRepository;
+import com.bitcomputer.employeeportal.backgroundcheck.BackgroundCheckStatus;
 import com.bitcomputer.employeeportal.auth.EmployeeAccount;
 import com.bitcomputer.employeeportal.auth.EmployeeAccountRepository;
 import com.bitcomputer.employeeportal.common.ApiException;
@@ -31,13 +33,15 @@ public class AdminEmployeeController {
     private final EmployeeRepository employeeRepository;
     private final EmployeeAccountRepository accountRepository;
     private final PasswordEncoder passwordEncoder;
+    private final BackgroundCheckRepository checkRepository;
     private final Clock clock = Clock.systemUTC();
 
     public AdminEmployeeController(EmployeeRepository employeeRepository, EmployeeAccountRepository accountRepository,
-                                   PasswordEncoder passwordEncoder) {
+                                   PasswordEncoder passwordEncoder, BackgroundCheckRepository checkRepository) {
         this.employeeRepository = employeeRepository;
         this.accountRepository = accountRepository;
         this.passwordEncoder = passwordEncoder;
+        this.checkRepository = checkRepository;
     }
 
     @PostMapping
@@ -57,7 +61,10 @@ public class AdminEmployeeController {
 
     @GetMapping
     List<EmployeeSummary> list() {
-        return employeeRepository.findAllByOrderByEmployeeNumberAsc().stream().map(EmployeeSummary::from).toList();
+        var latest = checkRepository.findLatestStatuses().stream().collect(
+                java.util.stream.Collectors.toMap(BackgroundCheckRepository.LatestStatus::getEmployeeId, LatestCheck::from));
+        return employeeRepository.findAllByOrderByEmployeeNumberAsc().stream()
+                .map(e -> EmployeeSummary.from(e, latest.get(e.getId()))).toList();
     }
 
     @GetMapping("/{id}")
@@ -97,9 +104,17 @@ public class AdminEmployeeController {
     public record TerminationRequest(@NotNull(message = "실제 퇴사일을 입력해 주세요.") LocalDate terminationDate) {}
 
     public record EmployeeSummary(Long id, String employeeNumber, String fullName, LocalDate dateOfBirth,
-                                  EmploymentStatus employmentStatus) {
-        static EmployeeSummary from(Employee e) {
-            return new EmployeeSummary(e.getId(), e.getEmployeeNumber(), e.getFullName(), e.getDateOfBirth(), e.getEmploymentStatus());
+                                  EmploymentStatus employmentStatus, LatestCheck latestBackgroundCheck) {
+        static EmployeeSummary from(Employee e, LatestCheck latest) {
+            return new EmployeeSummary(e.getId(), e.getEmployeeNumber(), e.getFullName(), e.getDateOfBirth(), e.getEmploymentStatus(), latest);
+        }
+    }
+
+    public record LatestCheck(Long id, BackgroundCheckStatus status, boolean trackingActive,
+                              String trackingStopReason, Instant requestedAt) {
+        static LatestCheck from(BackgroundCheckRepository.LatestStatus c) {
+            return new LatestCheck(c.getId(), c.getStatus(), c.getNextPollAt() != null,
+                    c.getTrackingStopReason(), c.getRequestedAt());
         }
     }
 

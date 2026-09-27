@@ -62,3 +62,10 @@ tbody tr.panel-row td { padding: 0; border-bottom: 1px solid #edf0f5; }
   .content { padding: 24px; }
   .grid { grid-template-columns: 1fr; }
 }
+
+.check-badge { display:inline-block; padding:6px 10px; border-radius:8px; font-size:13px; font-weight:600; background:#eef1f5; white-space:nowrap; }
+.check-badge.clear { background:#e8f6ed; color:#176b39; }
+.check-badge.flagged, .check-badge.stopped, .check-badge.submission_failed { background:#fff0e5; color:#984300; }
+.check-badge.pending, .check-badge.requesting { background:#eaf0ff; color:#3157d5; }
+.check-date { display:block; margin-top:6px; color:#6b7485; font-size:12px; }
+button.secondary { background:white; color:#3157d5; border:1px solid #cbd3df; white-space:nowrap; }

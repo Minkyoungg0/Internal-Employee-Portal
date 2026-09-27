@@ -6,7 +6,8 @@ type CurrentUser = { accountId:number; employeeId:number; employeeNumber:string;
 type CsrfToken = { headerName:string; parameterName:string; token:string };
 type ApiError = { code?:string; message?:string };
 type Profile = { id:number; employeeNumber:string; lastName:string; firstName:string; fullName:string; dateOfBirth:string|null; employmentStatus:string; username:string };
-type Employee = { id:number; employeeNumber:string; fullName:string; dateOfBirth:string|null; employmentStatus:'ACTIVE'|'TERMINATED' };
+type LatestCheck = {id:number; status:string; trackingActive:boolean; trackingStopReason:string|null; requestedAt:string};
+type Employee = { latestBackgroundCheck:LatestCheck|null; id:number; employeeNumber:string; fullName:string; dateOfBirth:string|null; employmentStatus:'ACTIVE'|'TERMINATED' };
 type EmployeeDetail = Employee & { lastName:string; firstName:string; terminationDate:string|null; terminatedAt:string|null; account:{username:string;enabled:boolean;passwordChangeRequired:boolean}|null };
 type Check = { trackingActive:boolean; trackingStopReason:string|null; id:number; externalCheckId:string|null; submittedFirstName:string; submittedLastName:string; submittedDateOfBirth:string; status:string; result:{criminalRecord:boolean|null;educationVerified:boolean|null;employmentVerified:boolean|null;creditScore:string|null}|null; requestedAt:string; completedAt:string|null; lastCheckedAt:string|null };
 
@@ -40,21 +41,109 @@ function ProfilePage({user,onLogout}:{user:CurrentUser;onLogout:()=>Promise<void
 
 function EmployeeCreateForm({csrf,onCreated}:{csrf:CsrfToken|null;onCreated:()=>void}){const [error,setError]=useState('');async function submit(e:FormEvent<HTMLFormElement>){e.preventDefault();const form=e.currentTarget;const f=new FormData(form);const date=String(f.get('dateOfBirth')??'');const payload={employeeNumber:String(f.get('employeeNumber')),lastName:String(f.get('lastName')),firstName:String(f.get('firstName')),dateOfBirth:date||null,username:String(f.get('username')),initialPassword:String(f.get('initialPassword'))};try{await api('/api/admin/employees',{method:'POST',body:JSON.stringify(payload)},csrf);form.reset();setError('');onCreated()}catch(x){setError(x instanceof Error?x.message:'생성하지 못했습니다.')}}return <form className="card form compact" onSubmit={submit}><h2>직원 계정 생성</h2><div className="grid"><label>사번<input name="employeeNumber" placeholder="EMP-011" required/></label><label>성<input name="lastName" required/></label><label>이름<input name="firstName" required/></label><label>생년월일<input name="dateOfBirth" type="date"/></label><label>로그인 아이디<input name="username" required/></label><label>초기 비밀번호<input name="initialPassword" type="password" minLength={8} required/></label></div>{error&&<p className="error">{error}</p>}<button>생성</button></form>}
 
-function EmployeesPage({user,csrf,onLogout}:{user:CurrentUser;csrf:CsrfToken|null;onLogout:()=>Promise<void>}){const [items,setItems]=useState<Employee[]>([]);const [selected,setSelected]=useState<number|null>(null);const load=()=>api<Employee[]>('/api/admin/employees').then(setItems);useEffect(()=>{void load()},[]);return <Shell title="직원 관리" user={user} onLogout={onLogout}><EmployeeCreateForm csrf={csrf} onCreated={()=>void load()}/><section className="card table-card"><h2>전체 직원</h2><table><thead><tr><th>사번</th><th>성명</th><th>생년월일</th><th>상태</th></tr></thead><tbody>{items.map(e=>{const isSelected=selected===e.id;return <Fragment key={e.id}><tr className={isSelected?'selected-row':undefined} onClick={()=>setSelected(isSelected?null:e.id)}><td>{e.employeeNumber}</td><td>{e.fullName}</td><td>{e.dateOfBirth??'확인되지 않음'}</td><td>{e.employmentStatus==='ACTIVE'?'재직':'퇴사'}</td></tr>{isSelected&&<tr className="panel-row"><td colSpan={4}><EmployeePanel id={e.id} csrf={csrf} onChanged={()=>void load()}/></td></tr>}</Fragment>})}</tbody></table></section></Shell>}
 
-function EmployeePanel({id,csrf,onChanged}:{id:number;csrf:CsrfToken|null;onChanged:()=>void}){const [employee,setEmployee]=useState<EmployeeDetail|null>(null);const [checks,setChecks]=useState<Check[]>([]);const [error,setError]=useState('');const [submitting,setSubmitting]=useState(false);const load=()=>Promise.all([api<EmployeeDetail>(`/api/admin/employees/${id}`),api<Check[]>(`/api/admin/employees/${id}/background-checks`)]).then(([e,c])=>{setEmployee(e);setChecks(c);setError('')}).catch(x=>setError(x.message));useEffect(()=>{void load()},[id]);async function terminate(){const date=window.prompt('실제 퇴사일을 YYYY-MM-DD 형식으로 입력하세요.');if(!date)return;try{await api(`/api/admin/employees/${id}/termination`,{method:'POST',body:JSON.stringify({terminationDate:date})},csrf);await load();onChanged()}catch(x){setError(x instanceof Error?x.message:'퇴사 처리하지 못했습니다.')}}async function start(){
-  if(submitting)return;
-  setSubmitting(true);
-  setError('');
-  try {
-    const created=await api<Check>(`/api/admin/employees/${id}/background-checks`,{method:'POST'},csrf);
-    setChecks(previous=>[created,...previous.filter(check=>check.id!==created.id)]);
-  } catch(x) {
-    setError(x instanceof Error?x.message:'검사를 시작하지 못했습니다.');
-  } finally {
-    setSubmitting(false);
+function checkLabel(check:LatestCheck|null) {
+  if(!check)return '검사 없음';
+  if(check.trackingStopReason)return '조회 중단';
+  if(check.trackingActive)return '검사 진행 중';
+  return ({REQUESTING:'접수 중…',PENDING:'검사 진행 중',CLEAR:'CLEAR',
+    FLAGGED:'FLAGGED',SUBMISSION_UNKNOWN:'접수 확인 필요',
+    SUBMISSION_FAILED:'접수 실패'} as Record<string,string>)[check.status]??check.status;
+}
+
+function EmployeesPage({user,csrf,onLogout}:{user:CurrentUser;csrf:CsrfToken|null;onLogout:()=>Promise<void>}) {
+  const [items,setItems]=useState<Employee[]>([]);
+  const [selected,setSelected]=useState<number|null>(null);
+  const [history,setHistory]=useState<number|null>(null);
+  const [error,setError]=useState('');
+  const [revision,setRevision]=useState(0);
+  useEffect(()=>{
+    const controller=new AbortController();
+    let timer:ReturnType<typeof setTimeout>|undefined;
+    async function load(){
+      try {
+        const result=await api<Employee[]>('/api/admin/employees',{signal:controller.signal});
+        if(controller.signal.aborted)return;
+        setItems(result);setError('');
+        timer=setTimeout(()=>void load(),5000);
+      } catch(e) {if(!controller.signal.aborted)setError(e instanceof Error?e.message:'목록 조회 실패');}
+    }
+    void load();
+    return ()=>{controller.abort();if(timer)clearTimeout(timer);};
+  },[revision]);
+  const changed=()=>setRevision(value=>value+1);
+  return <Shell title="직원 관리" user={user} onLogout={onLogout}>
+    <EmployeeCreateForm csrf={csrf} onCreated={changed}/>
+    <section className="card table-card"><h2>전체 직원</h2>
+      <p className="muted">가장 최근에 시작한 검사 상태입니다. 5초마다 자동 갱신됩니다.</p>
+      {error&&<p className="error">{error}</p>}
+      <table><thead><tr><th>사번</th><th>성명</th><th>생년월일</th><th>재직 상태</th><th>최신 Background Check</th><th>조회</th></tr></thead>
+      <tbody>{items.map(e=><Fragment key={e.id}>
+        <tr className={selected===e.id?'selected-row':undefined} onClick={()=>setSelected(selected===e.id?null:e.id)}>
+          <td>{e.employeeNumber}</td><td>{e.fullName}</td><td>{e.dateOfBirth??'확인되지 않음'}</td>
+          <td>{e.employmentStatus==='ACTIVE'?'재직':'퇴사'}</td>
+          <td><span className={'check-badge '+(e.latestBackgroundCheck?.trackingStopReason?'stopped':e.latestBackgroundCheck?.trackingActive?'pending':e.latestBackgroundCheck?.status.toLowerCase()??'none')}>{checkLabel(e.latestBackgroundCheck)}</span>
+            {e.latestBackgroundCheck&&<small className="check-date">{new Date(e.latestBackgroundCheck.requestedAt).toLocaleString()}</small>}</td>
+          <td><button className="secondary" aria-expanded={history===e.id} onClick={event=>{event.stopPropagation();setHistory(history===e.id?null:e.id);}}>{history===e.id?'이력 닫기':'검사 이력'}</button></td>
+        </tr>
+        {selected===e.id&&<tr className="panel-row"><td colSpan={6}><EmployeePanel id={e.id} csrf={csrf} latest={e.latestBackgroundCheck} onChanged={changed}/></td></tr>}
+        {history===e.id&&<tr className="panel-row"><td colSpan={6}><CheckHistory employeeId={e.id} csrf={csrf} latestId={e.latestBackgroundCheck?.id}/></td></tr>}
+      </Fragment>)}</tbody></table>
+    </section>
+  </Shell>;
+}
+
+function EmployeePanel({id,csrf,latest,onChanged}:{id:number;csrf:CsrfToken|null;latest:LatestCheck|null;onChanged:()=>void}) {
+  const [employee,setEmployee]=useState<EmployeeDetail|null>(null);
+  const [error,setError]=useState('');
+  const [submitting,setSubmitting]=useState(false);
+  const [accepted,setAccepted]=useState<LatestCheck|null>(null);
+  const load=()=>api<EmployeeDetail>(`/api/admin/employees/${id}`).then(setEmployee).catch(e=>setError(e.message));
+  useEffect(()=>{void load()},[id]);
+  async function terminate(){
+    const date=window.prompt('실제 퇴사일을 YYYY-MM-DD 형식으로 입력하세요.');
+    if(!date)return;
+    try {await api(`/api/admin/employees/${id}/termination`,{method:'POST',body:JSON.stringify({terminationDate:date})},csrf);await load();onChanged();}
+    catch(e){setError(e instanceof Error?e.message:'퇴사 처리 실패');}
   }
-}return <div className="panel">{error&&<p className="error">{error}</p>}{employee&&<><div className="row"><div><h2>{employee.fullName}</h2><p>{employee.employeeNumber} · {employee.dateOfBirth??'생년월일 미확인'} · {employee.account?.username}</p></div>{employee.employmentStatus==='ACTIVE'&&<button className="danger" onClick={()=>void terminate()}>퇴사 처리</button>}</div>{employee.terminationDate&&<p>실제 퇴사일 {employee.terminationDate} · 처리 시각 {employee.terminatedAt}</p>}<div className="row"><h3>Background Check</h3><button disabled={submitting} aria-busy={submitting} onClick={()=>void start()}>{submitting?'접수 중…':'검사 시작'}</button></div>{checks.length===0?<p className="muted">검사 이력이 없습니다.</p>:checks.map(c=><CheckResult key={c.id} employeeId={id} initial={c} csrf={csrf}/>)}</>}</div>}
+  async function start(){
+    if(submitting)return;
+    setSubmitting(true);setError('');
+    try {
+      const created=await api<Check>(`/api/admin/employees/${id}/background-checks`,{method:'POST'},csrf);
+      setAccepted(created);onChanged();
+    }catch(e){setError(e instanceof Error?e.message:'검사 접수 실패');}
+    finally{setSubmitting(false);}
+  }
+  const current=accepted&&(!latest||accepted.id>latest.id)?accepted:latest;
+  return <div className="panel">{error&&<p className="error">{error}</p>}{employee&&<>
+    <div className="row"><div><h2>{employee.fullName}</h2><p>{employee.employeeNumber} · {employee.account?.username}</p></div>
+    {employee.employmentStatus==='ACTIVE'&&<button className="danger" onClick={()=>void terminate()}>퇴사 처리</button>}</div>
+    {employee.terminationDate&&<p>실제 퇴사일 {employee.terminationDate} · 처리 시각 {employee.terminatedAt}</p>}
+    <div className="row"><p role="status">{submitting?'접수 중…':checkLabel(current)}</p>
+      <button disabled={submitting} aria-busy={submitting} onClick={()=>void start()}>{submitting?'접수 중…':'검사 시작'}</button></div>
+  </>}</div>;
+}
+
+function CheckHistory({employeeId,csrf,latestId}:{employeeId:number;csrf:CsrfToken|null;latestId?:number}) {
+  const [checks,setChecks]=useState<Check[]>([]);
+  const [error,setError]=useState('');
+  const [loading,setLoading]=useState(true);
+  useEffect(()=>{
+    const controller=new AbortController();
+    setLoading(true);
+    api<Check[]>(`/api/admin/employees/${employeeId}/background-checks`,{signal:controller.signal})
+      .then(result=>{setChecks(result);setError('');})
+      .catch(e=>{if(!controller.signal.aborted)setError(e.message);})
+      .finally(()=>{if(!controller.signal.aborted)setLoading(false);});
+    return ()=>controller.abort();
+  },[employeeId,latestId]);
+  return <div className="panel"><h3>검사 이력</h3>
+    {error&&<p className="error">{error}</p>}
+    {loading?<p className="muted">이력을 불러오는 중…</p>:checks.length===0?<p className="muted">검사 이력이 없습니다.</p>:
+      checks.map(check=><CheckResult key={check.id} employeeId={employeeId} initial={check} csrf={csrf}/>)}
+  </div>;
+}
 
 function CheckResult({employeeId, initial, csrf}:{employeeId:number;initial:Check;csrf:CsrfToken|null}) {
   const [check,setCheck]=useState(initial);

@@ -8,6 +8,27 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface BackgroundCheckRepository extends JpaRepository<BackgroundCheck, Long> {
+    interface LatestStatus {
+        Long getEmployeeId();
+        Long getId();
+        BackgroundCheckStatus getStatus();
+        java.time.Instant getNextPollAt();
+        String getTrackingStopReason();
+        java.time.Instant getRequestedAt();
+    }
+
+    @Query("""
+            select c.employee.id as employeeId, c.id as id, c.status as status,
+                   c.nextPollAt as nextPollAt, c.trackingStopReason as trackingStopReason,
+                   c.requestedAt as requestedAt
+            from BackgroundCheck c
+            where not exists (select newer.id from BackgroundCheck newer
+                where newer.employee.id = c.employee.id
+                and (newer.requestedAt > c.requestedAt
+                     or (newer.requestedAt = c.requestedAt and newer.id > c.id)))
+            """)
+    List<LatestStatus> findLatestStatuses();
+
     @Query("select c from BackgroundCheck c join fetch c.employee where c.nextPollAt <= :now order by c.nextPollAt")
     List<BackgroundCheck> findDue(@Param("now") java.time.Instant now, org.springframework.data.domain.Pageable pageable);
 
