@@ -28,6 +28,7 @@ services:
       BACKGROUND_CHECK_BASE_URL: ${BACKGROUND_CHECK_BASE_URL:-https://54capvm12g.execute-api.ap-northeast-2.amazonaws.com}
       BACKGROUND_CHECK_CANDIDATE_KEY: ${BACKGROUND_CHECK_CANDIDATE_KEY:-not-configured}
       SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
+      JAVA_TOOL_OPTIONS: "-Xms128m -Xmx384m"
     depends_on:
       db:
         condition: service_healthy
