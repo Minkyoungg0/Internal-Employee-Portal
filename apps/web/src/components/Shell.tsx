@@ -8,7 +8,7 @@ export function Shell({
   onLogout,
   children,
 }: {
-  title: string;
+  title?: string;
   user: CurrentUser;
   onLogout: () => Promise<void>;
   children: ReactNode;
@@ -30,7 +30,7 @@ export function Shell({
         </button>
       </aside>
       <main className="content">
-        <h1>{title}</h1>
+        {title && <h1>{title}</h1>}
         {children}
       </main>
     </div>

@@ -118,6 +118,7 @@ export function EmployeesPage({
 }) {
   const [selected, setSelected] = useState<number | null>(null);
   const [history, setHistory] = useState<number | null>(null);
+  const [changeHistory, setChangeHistory] = useState<number | null>(null);
   const [revision, setRevision] = useState(0);
   const [changeRevision, setChangeRevision] = useState(0);
 
@@ -187,7 +188,13 @@ export function EmployeesPage({
                       historyOpen={history === e.id}
                       onHistory={() => {
                         setSelected(null);
+                        setChangeHistory(null);
                         setHistory(history === e.id ? null : e.id);
+                      }}
+                      onChangeHistory={() => {
+                        setSelected(null);
+                        setHistory(null);
+                        setChangeHistory(changeHistory === e.id ? null : e.id);
                       }}
                       onChanged={changed}
                     />
@@ -209,6 +216,12 @@ export function EmployeesPage({
         const employee = items.find(item => item.id === history);
         return employee ? (
           <CheckHistoryModal employee={employee} csrf={csrf} onClose={() => setHistory(null)} />
+        ) : null;
+      })()}
+      {changeHistory !== null && (() => {
+        const employee = items.find(item => item.id === changeHistory);
+        return employee ? (
+          <EmployeeChangeHistoryModal employee={employee} onClose={() => setChangeHistory(null)} />
         ) : null;
       })()}
     </Shell>
@@ -298,11 +311,12 @@ function EmployeePanel({
   );
 }
 
-function EmployeeActions({ employee, csrf, historyOpen, onHistory, onChanged }: {
+function EmployeeActions({ employee, csrf, historyOpen, onHistory, onChangeHistory, onChanged }: {
   employee: Employee;
   csrf: CsrfToken | null;
   historyOpen: boolean;
   onHistory: () => void;
+  onChangeHistory: () => void;
   onChanged: () => void;
 }) {
   const [submitting, setSubmitting] = useState(false);
@@ -352,6 +366,7 @@ function EmployeeActions({ employee, csrf, historyOpen, onHistory, onChanged }: 
     <button className="secondary small" aria-expanded={historyOpen} onClick={onHistory}>
       {historyOpen ? '이력 닫기' : '검사 이력'}
     </button>
+    <button className="secondary small" onClick={onChangeHistory}>정보 변경 이력</button>
     <button className="small" disabled={submitting || checkInProgress || employee.employmentStatus !== 'ACTIVE'} onClick={() => void start()}>
       {submitting ? '접수 중…' : checkInProgress ? '검사 중' : '검사 시작'}
     </button>
@@ -475,34 +490,50 @@ function ChangeRequestManagement({ csrf, revision, onChanged }: {
   revision: number;
   onChanged: () => void;
 }) {
-  const [items, setItems] = useState<EmployeeChange[]>([]);
+  const [allItems, setAllItems] = useState<EmployeeChange[]>([]);
   const [error, setError] = useState('');
+  const [requestError, setRequestError] = useState('');
   const [processing, setProcessing] = useState<number | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
-  const load = () => api<EmployeeChange[]>('/api/admin/employee-change-requests')
-    .then(result => { setItems(result); setError(''); })
-    .catch(e => setError(e.message));
+  const load = async () => {
+    setRefreshing(true);
+    try {
+      setAllItems(await api<EmployeeChange[]>('/api/admin/employee-change-requests'));
+      setError('');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '변경 요청 조회에 실패했습니다.');
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   useEffect(() => { void load(); }, [revision]);
+  const items = allItems.filter(item => item.status === 'PENDING');
 
   async function review(id: number, action: 'approve' | 'reject') {
     setProcessing(id);
-    setError('');
+    setRequestError('');
     try {
       await api(`/api/admin/employee-change-requests/${id}/${action}`, { method: 'POST' }, csrf);
-      await load();
       onChanged();
     } catch (e) {
-      setError(e instanceof Error ? e.message : '변경 요청을 처리하지 못했습니다.');
+      setRequestError(e instanceof Error ? e.message : '변경 요청을 처리하지 못했습니다.');
     } finally {
       setProcessing(null);
     }
   }
 
   return <section className="card table-card">
-    <h2>인적사항 변경 요청</h2>
+    <div className="row">
+      <div><h2>승인 대기 인적사항 변경 요청</h2></div>
+      <button className="secondary small" disabled={refreshing} onClick={() => void load()}>
+        {refreshing ? '새로고침 중…' : '새로고침'}
+      </button>
+    </div>
     {error && <p className="error">{error}</p>}
-    {items.length === 0 ? <p className="muted">변경 요청 이력이 없습니다.</p> : <table>
+    {requestError && <p className="error">{requestError}</p>}
+    {items.length === 0 ? <p className="muted">승인 대기 요청이 없습니다.</p> : <table>
       <thead><tr><th>직원</th><th>변경 전</th><th>요청 내용</th><th>상태</th><th>요청/처리 시각</th><th>처리</th></tr></thead>
       <tbody>{items.map(item => <tr key={item.id}>
         <td>{item.employeeNumber}<br />{item.employeeName}</td>
@@ -517,4 +548,48 @@ function ChangeRequestManagement({ csrf, revision, onChanged }: {
       </tr>)}</tbody>
     </table>}
   </section>;
+}
+
+function EmployeeChangeHistoryModal({ employee, onClose }: { employee: Employee; onClose: () => void }) {
+  const [items, setItems] = useState<EmployeeChange[]>([]);
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    api<EmployeeChange[]>(`/api/admin/employees/${employee.id}/change-history`, { signal: controller.signal })
+      .then(setItems)
+      .catch(e => { if (!controller.signal.aborted) setError(e.message); })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    return () => controller.abort();
+  }, [employee.id]);
+
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [onClose]);
+
+  return <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
+    <section className="modal-card" role="dialog" aria-modal="true" aria-labelledby="employee-change-history-title"
+      onMouseDown={event => event.stopPropagation()}>
+      <div className="modal-header">
+        <div><h2 id="employee-change-history-title">인적사항 변경 이력</h2><p>{employee.employeeNumber} · {employee.fullName}</p></div>
+        <button className="secondary small" aria-label="인적사항 변경 이력 닫기" onClick={onClose}>닫기</button>
+      </div>
+      <div className="modal-content modal-table-content">
+        {error && <p className="error">{error}</p>}
+        {loading ? <p className="muted">이력을 불러오는 중…</p> : items.length === 0 ?
+          <p className="muted">인적사항 변경 이력이 없습니다.</p> : <table>
+            <thead><tr><th>변경 전</th><th>요청 내용</th><th>상태</th><th>요청 시각</th><th>처리 시각</th></tr></thead>
+            <tbody>{items.map(item => <tr key={item.id}>
+              <td>{item.previous.fullName}<br />{item.previous.dateOfBirth ?? '미확인'}</td>
+              <td>{item.requested.fullName}<br />{item.requested.dateOfBirth ?? '미확인'}</td>
+              <td><span className={`change-badge ${item.status.toLowerCase()}`}>{CHANGE_LABEL[item.status]}</span></td>
+              <td>{formatDateTime(item.requestedAt)}</td><td>{formatDateTime(item.reviewedAt)}</td>
+            </tr>)}</tbody>
+          </table>}
+      </div>
+    </section>
+  </div>;
 }

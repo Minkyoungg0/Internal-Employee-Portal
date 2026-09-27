@@ -1,16 +1,19 @@
 import { useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
+import { Shell } from '../components/Shell';
 import type { CsrfToken, CurrentUser } from '../types';
 
 export function ChangePasswordPage({
   user,
   csrf,
   onChanged,
+  onLogout,
 }: {
   user: CurrentUser;
   csrf: CsrfToken | null;
   onChanged: () => void;
+  onLogout: () => Promise<void>;
 }) {
   const [error, setError] = useState('');
   const navigate = useNavigate();
@@ -38,25 +41,29 @@ export function ChangePasswordPage({
   }
 
   return (
-    <main className="centered">
-      <form className="card form" onSubmit={submit}>
-        <p className="eyebrow">PASSWORD</p>
-        <h1>{user.passwordChangeRequired ? '초기 비밀번호 변경' : '비밀번호 변경'}</h1>
-        <label>
-          현재 비밀번호
-          <input name="currentPassword" type="password" required />
-        </label>
-        <label>
-          새 비밀번호
-          <input name="newPassword" type="password" minLength={8} required />
-        </label>
-        <label>
-          새 비밀번호 확인
-          <input name="confirmPassword" type="password" minLength={8} required />
-        </label>
-        {error && <p className="error">{error}</p>}
-        <button>변경하기</button>
-      </form>
-    </main>
+    <Shell user={user} onLogout={onLogout}>
+      <div className="password-page">
+        <div className="password-card-wrap">
+          <h1>{user.passwordChangeRequired ? '초기 비밀번호 변경' : '비밀번호 변경'}</h1>
+          <form className="card form" onSubmit={submit}>
+          <p className="eyebrow">PASSWORD</p>
+          <label>
+            현재 비밀번호
+            <input name="currentPassword" type="password" required />
+          </label>
+          <label>
+            새 비밀번호
+            <input name="newPassword" type="password" minLength={8} required />
+          </label>
+          <label>
+            새 비밀번호 확인
+            <input name="confirmPassword" type="password" minLength={8} required />
+          </label>
+          {error && <p className="error">{error}</p>}
+            <button>변경하기</button>
+          </form>
+        </div>
+      </div>
+    </Shell>
   );
 }

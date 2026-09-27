@@ -61,6 +61,9 @@ tbody tr.panel-row td { padding: 0; border-bottom: 1px solid #edf0f5; }
 .result-table tr { cursor: default; }
 .profile-change-form { width: 100%; margin-top: 24px; padding-top: 20px; border-top: 1px solid #e2e7ef; }
 .profile-change-form button { justify-self: start; }
+.password-page { min-height: calc(100vh - 120px); display: grid; place-items: center; }
+.password-card-wrap { width: min(100%, 440px); }
+.password-card-wrap > h1 { margin: 0 0 16px; text-align: center; font-size: 24px; }
 .button-group { display: flex; gap: 6px; }
 .change-badge { display: inline-block; padding: 5px 9px; border-radius: 8px; font-weight: 700; white-space: nowrap; }
 .change-badge.pending { background: #eaf0ff; color: #3157d5; }
@@ -90,3 +93,4 @@ button.small { padding: 4px 7px; border-radius: 6px; font-size: 11px; }
 .modal-header p { margin-top: 4px; color: #6b7485; font-size: 12px; }
 .modal-content { min-height: 0; overflow-y: auto; }
 .modal-content .panel { background: white; }
+.modal-table-content { padding: 16px 20px 20px; }

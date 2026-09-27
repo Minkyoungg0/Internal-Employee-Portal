@@ -39,14 +39,17 @@ public class AdminEmployeeController {
     private final EmployeeAccountRepository accountRepository;
     private final PasswordEncoder passwordEncoder;
     private final BackgroundCheckRepository checkRepository;
+    private final EmployeeChangeService changeService;
     private final Clock clock = Clock.systemUTC();
 
     public AdminEmployeeController(EmployeeRepository employeeRepository, EmployeeAccountRepository accountRepository,
-                                   PasswordEncoder passwordEncoder, BackgroundCheckRepository checkRepository) {
+                                   PasswordEncoder passwordEncoder, BackgroundCheckRepository checkRepository,
+                                   EmployeeChangeService changeService) {
         this.employeeRepository = employeeRepository;
         this.accountRepository = accountRepository;
         this.passwordEncoder = passwordEncoder;
         this.checkRepository = checkRepository;
+        this.changeService = changeService;
     }
 
     @PostMapping
@@ -80,6 +83,13 @@ public class AdminEmployeeController {
         Employee employee = findEmployee(id);
         EmployeeAccount account = accountRepository.findByEmployeeId(id).orElse(null);
         return EmployeeDetail.from(employee, account);
+    }
+
+    @GetMapping("/{id}/change-history")
+    @Operation(summary = "직원 인적사항 변경 이력 조회", description = "지정한 직원의 인적사항 변경 요청과 승인·반려 기록을 최신순으로 조회합니다.")
+    List<EmployeeChangeResponse> changeHistory(@PathVariable Long id) {
+        findEmployee(id);
+        return changeService.listForEmployee(id);
     }
 
     @PostMapping("/{id}/termination")

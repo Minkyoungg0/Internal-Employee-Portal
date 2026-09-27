@@ -50,7 +50,12 @@ export default function App() {
         path="/change-password"
         element={
           user ? (
-            <ChangePasswordPage user={user} csrf={csrf} onChanged={() => setUser({ ...user, passwordChangeRequired: false })} />
+            <ChangePasswordPage
+              user={user}
+              csrf={csrf}
+              onChanged={() => setUser({ ...user, passwordChangeRequired: false })}
+              onLogout={logout}
+            />
           ) : (
             <Navigate to="/login" />
           )
