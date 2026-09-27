@@ -20,6 +20,20 @@ export type CurrentUser = {
 export type CsrfToken = { headerName: string; parameterName: string; token: string };
 export type ApiError = { code?: string; message?: string };
 
+export type EmployeeChangeStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
+export type PersonalInformation = { lastName: string; firstName: string; fullName: string; dateOfBirth: string | null };
+export type EmployeeChange = {
+  id: number;
+  employeeId: number;
+  employeeNumber: string;
+  employeeName: string;
+  previous: PersonalInformation;
+  requested: PersonalInformation;
+  status: EmployeeChangeStatus;
+  requestedAt: string;
+  reviewedAt: string | null;
+};
+
 export type Profile = {
   id: number;
   employeeNumber: string;

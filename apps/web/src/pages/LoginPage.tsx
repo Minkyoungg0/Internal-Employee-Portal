@@ -41,7 +41,7 @@ export function LoginPage({
         headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8', [token.headerName]: token.token },
         body,
       });
-      if (!r.ok) throw new Error(await readError(r, '로그인하지 못했습니다.'));
+      if (!r.ok) throw new Error((await readError(r, '로그인하지 못했습니다.')).message);
       const u = (await r.json()) as CurrentUser;
       onCsrfChange(await fetchCsrf());
       onLogin(u);

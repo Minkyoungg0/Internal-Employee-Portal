@@ -7,12 +7,15 @@ import com.bitcomputer.employeeportal.common.ApiException;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
+import java.time.LocalDate;
+import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -24,12 +27,28 @@ public class MeController {
     private final EmployeeRepository employeeRepository;
     private final EmployeeAccountRepository accountRepository;
     private final PasswordEncoder passwordEncoder;
+    private final EmployeeChangeService changeService;
 
     public MeController(EmployeeRepository employeeRepository, EmployeeAccountRepository accountRepository,
-                        PasswordEncoder passwordEncoder) {
+                        PasswordEncoder passwordEncoder, EmployeeChangeService changeService) {
         this.employeeRepository = employeeRepository;
         this.accountRepository = accountRepository;
         this.passwordEncoder = passwordEncoder;
+        this.changeService = changeService;
+    }
+
+    @PostMapping("/profile-change-requests")
+    @ResponseStatus(HttpStatus.CREATED)
+    EmployeeChangeResponse requestProfileChange(@AuthenticationPrincipal PortalPrincipal principal,
+                                                @Valid @RequestBody ProfileChangeRequest request) {
+        return EmployeeChangeResponse.from(changeService.request(principal.employeeId(), principal.accountId(),
+                request.lastName(), request.firstName(), request.dateOfBirth()));
+    }
+
+    @GetMapping("/profile-change-requests")
+    List<EmployeeChangeResponse> profileChangeHistory(@AuthenticationPrincipal PortalPrincipal principal) {
+        return changeService.listForEmployee(principal.employeeId()).stream()
+                .map(EmployeeChangeResponse::from).toList();
     }
 
     @GetMapping("/profile")
@@ -58,6 +77,12 @@ public class MeController {
     public record ChangePasswordRequest(
             @NotBlank(message = "현재 비밀번호를 입력해 주세요.") String currentPassword,
             @NotBlank @Size(min = 8, max = 72, message = "새 비밀번호는 8자 이상 72자 이하여야 합니다.") String newPassword
+    ) {}
+
+    public record ProfileChangeRequest(
+            @NotBlank @Size(max = 50) String lastName,
+            @NotBlank @Size(max = 50) String firstName,
+            LocalDate dateOfBirth
     ) {}
 
     public record ProfileResponse(Long id, String employeeNumber, String lastName, String firstName,

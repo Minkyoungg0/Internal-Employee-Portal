@@ -21,6 +21,13 @@ export default function App() {
       })
       .then(async r => {
         if (r.ok) setUser(await r.json());
+        else if (r.status === 401 && window.location.pathname !== '/login') {
+          const body = await r.json().catch(() => ({})) as { code?: string };
+          if (body.code === 'SESSION_EXPIRED' || body.code === 'SESSION_REVOKED') {
+            window.alert('세션이 만료되었습니다. 다시 로그인해 주세요.');
+            window.location.assign('/login');
+          }
+        }
       })
       .finally(() => setLoading(false));
   }, []);

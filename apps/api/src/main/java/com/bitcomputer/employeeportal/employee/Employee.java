@@ -94,4 +94,11 @@ public class Employee {
     }
 
     public void terminate() { terminate(LocalDate.now(), Instant.now()); }
+
+    public void updatePersonalInformation(String lastName, String firstName, LocalDate dateOfBirth) {
+        this.lastName = lastName;
+        this.firstName = firstName;
+        this.fullName = lastName + firstName;
+        this.dateOfBirth = dateOfBirth;
+    }
 }

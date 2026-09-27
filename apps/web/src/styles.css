@@ -22,6 +22,7 @@ button { border: 0; border-radius: 8px; padding: 7px 11px; font-size: 13px; back
 .eyebrow { color: #3157d5; font-size: 12px; font-weight: 800; letter-spacing: .12em; margin: 0; }
 .muted { color: #6b7485; font-size: 13px; line-height: 1.5; }
 .error { color: #b42318; background: #fef3f2; border-radius: 8px; padding: 10px 12px; font-size: 13px; margin: 0; }
+.success { color: #176b39; background: #e8f6ed; border-radius: 8px; padding: 10px 12px; font-size: 13px; margin: 0; }
 .status { position: fixed; right: 16px; bottom: 16px; background: #172033; color: white; border-radius: 999px; padding: 8px 12px; font-size: 12px; z-index: 10; }
 .app-shell { min-height: 100vh; display: grid; grid-template-columns: 220px 1fr; }
 .app-shell aside { background: #172033; color: white; padding: 28px 20px; }
@@ -54,6 +55,17 @@ tbody tr.panel-row td { padding: 0; border-bottom: 1px solid #edf0f5; }
 .check { border-top: 1px solid #e2e7ef; padding: 10px 0; font-size: 13px; }
 .check > div { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .check span { color: #6b7485; margin-left: 12px; font-size: 12px; }
+.check h3 { margin: 0 0 12px; }
+.result-table { margin-top: 12px; background: white; border: 1px solid #e2e7ef; }
+.result-table th { width: 140px; color: #6b7485; background: #f7f9fc; }
+.result-table tr { cursor: default; }
+.profile-change-form { width: 100%; margin-top: 24px; padding-top: 20px; border-top: 1px solid #e2e7ef; }
+.profile-change-form button { justify-self: start; }
+.button-group { display: flex; gap: 6px; }
+.change-badge { display: inline-block; padding: 5px 9px; border-radius: 8px; font-weight: 700; white-space: nowrap; }
+.change-badge.pending { background: #eaf0ff; color: #3157d5; }
+.change-badge.approved { background: #e8f6ed; color: #176b39; }
+.change-badge.rejected { background: #fef3f2; color: #b42318; }
 
 @media (max-width: 700px) {
   .app-shell { grid-template-columns: 1fr; }

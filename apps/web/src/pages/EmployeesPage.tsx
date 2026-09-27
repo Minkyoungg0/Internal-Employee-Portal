@@ -10,8 +10,25 @@ import type {
   CurrentUser,
   Employee,
   EmployeeDetail,
+  EmployeeChange,
   LatestCheck,
 } from '../types';
+
+const CHANGE_LABEL = { PENDING: '승인 대기', APPROVED: '승인 완료', REJECTED: '반려' } as const;
+
+function formatDateTime(value: string | null | undefined) {
+  return value ? new Intl.DateTimeFormat('ko-KR', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) : '-';
+}
+
+function resultText(value: boolean | null) {
+  if (value === null) return '확인되지 않음';
+  return value ? '있음' : '없음';
+}
+
+function verifiedText(value: boolean | null) {
+  if (value === null) return '확인되지 않음';
+  return value ? '확인 완료' : '확인 실패';
+}
 
 const STATUS_LABELS: Record<BackgroundCheckStatus, string> = {
   REQUESTING: '접수 중…',
@@ -102,6 +119,7 @@ export function EmployeesPage({
   const [selected, setSelected] = useState<number | null>(null);
   const [history, setHistory] = useState<number | null>(null);
   const [revision, setRevision] = useState(0);
+  const [changeRevision, setChangeRevision] = useState(0);
 
   const { data: items, error } = usePolling<Employee[]>(
     signal => api<Employee[]>('/api/admin/employees', { signal }),
@@ -114,6 +132,10 @@ export function EmployeesPage({
   return (
     <Shell title="직원 관리" user={user} onLogout={onLogout}>
       <EmployeeCreateForm csrf={csrf} onCreated={changed} />
+      <ChangeRequestManagement csrf={csrf} revision={changeRevision} onChanged={() => {
+        setChangeRevision(value => value + 1);
+        changed();
+      }} />
       <section className="card table-card">
         <h2>전체 직원</h2>
         <p className="muted">가장 최근에 시작한 검사 상태입니다. 5초마다 자동 갱신됩니다.</p>
@@ -134,7 +156,11 @@ export function EmployeesPage({
               <Fragment key={e.id}>
                 <tr
                   className={selected === e.id ? 'selected-row' : undefined}
-                  onClick={() => setSelected(selected === e.id ? null : e.id)}
+                  onClick={() => {
+                    const closing = selected === e.id;
+                    setSelected(closing ? null : e.id);
+                    if (closing) setHistory(null);
+                  }}
                 >
                   <td>{e.employeeNumber}</td>
                   <td>{e.fullName}</td>
@@ -154,7 +180,7 @@ export function EmployeesPage({
                       {checkLabel(e.latestBackgroundCheck)}
                     </span>
                     {e.latestBackgroundCheck && (
-                      <small className="check-date">{new Date(e.latestBackgroundCheck.requestedAt).toLocaleString()}</small>
+                      <small className="check-date">{formatDateTime(e.latestBackgroundCheck.requestedAt)}</small>
                     )}
                   </td>
                   <td>
@@ -208,6 +234,7 @@ function EmployeePanel({
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [accepted, setAccepted] = useState<LatestCheck | null>(null);
+  const [latestDetail, setLatestDetail] = useState<Check | null>(null);
 
   const load = () => api<EmployeeDetail>(`/api/admin/employees/${id}`).then(setEmployee).catch(e => setError(e.message));
   useEffect(() => {
@@ -242,6 +269,21 @@ function EmployeePanel({
   }
 
   const current = accepted && (!latest || accepted.id > latest.id) ? accepted : latest;
+  const checkInProgress = Boolean(current && (
+    current.trackingActive || current.status === 'REQUESTING' || current.status === 'PENDING'
+  ));
+
+  useEffect(() => {
+    if (!current?.id) {
+      setLatestDetail(null);
+      return;
+    }
+    const controller = new AbortController();
+    api<Check>(`/api/admin/employees/${id}/background-checks/${current.id}`, { signal: controller.signal })
+      .then(setLatestDetail)
+      .catch(e => { if (!controller.signal.aborted) setError(e.message); });
+    return () => controller.abort();
+  }, [id, current?.id, current?.status, current?.trackingActive]);
 
   return (
     <div className="panel">
@@ -263,15 +305,16 @@ function EmployeePanel({
           </div>
           {employee.terminationDate && (
             <p>
-              실제 퇴사일 {employee.terminationDate} · 처리 시각 {employee.terminatedAt}
+              실제 퇴사일 {employee.terminationDate} · 처리 시각 {formatDateTime(employee.terminatedAt)}
             </p>
           )}
           <div className="row">
             <p role="status">{submitting ? '접수 중…' : checkLabel(current)}</p>
-            <button disabled={submitting} aria-busy={submitting} onClick={() => void start()}>
+            <button disabled={submitting || checkInProgress} aria-busy={submitting} onClick={() => void start()}>
               {submitting ? '접수 중…' : '검사 시작'}
             </button>
           </div>
+          {latestDetail && <CheckResult employeeId={id} initial={latestDetail} csrf={csrf} title="최신 검사 결과" />}
         </>
       )}
     </div>
@@ -323,7 +366,7 @@ function CheckHistory({
   );
 }
 
-function CheckResult({ employeeId, initial, csrf }: { employeeId: number; initial: Check; csrf: CsrfToken | null }) {
+function CheckResult({ employeeId, initial, csrf, title }: { employeeId: number; initial: Check; csrf: CsrfToken | null; title?: string }) {
   const [revision, setRevision] = useState(0);
   const [retrying, setRetrying] = useState(false);
 
@@ -364,9 +407,10 @@ function CheckResult({ employeeId, initial, csrf }: { employeeId: number; initia
 
   return (
     <article className="check">
+      {title && <h3>{title}</h3>}
       <div>
         <strong role="status">{check.trackingActive ? '검사 진행 중' : check.status}</strong>
-        <span>{new Date(check.requestedAt).toLocaleString()}</span>
+        <span>{formatDateTime(check.requestedAt)}</span>
       </div>
       {check.trackingStopReason && <p className="error">자동 결과 확인이 중단되었습니다. ({check.trackingStopReason})</p>}
       {check.trackingStopReason && !check.trackingActive && check.externalCheckId && (
@@ -375,12 +419,62 @@ function CheckResult({ employeeId, initial, csrf }: { employeeId: number; initia
         </button>
       )}
       {error && <p className="error">{error}</p>}
-      {!check.trackingActive && check.result && (
-        <p>
-          범죄 기록 {String(check.result.criminalRecord)} · 학력 확인 {String(check.result.educationVerified)} · 경력 확인{' '}
-          {String(check.result.employmentVerified)} · 신용 {check.result.creditScore}
-        </p>
-      )}
+      {!check.trackingActive && check.result && <table className="result-table"><tbody>
+        <tr><th>범죄 기록</th><td>{resultText(check.result.criminalRecord)}</td></tr>
+        <tr><th>학력 확인</th><td>{verifiedText(check.result.educationVerified)}</td></tr>
+        <tr><th>경력 확인</th><td>{verifiedText(check.result.employmentVerified)}</td></tr>
+        <tr><th>신용 점수</th><td>{check.result.creditScore ?? '확인되지 않음'}</td></tr>
+        <tr><th>완료 시각</th><td>{formatDateTime(check.completedAt)}</td></tr>
+      </tbody></table>}
     </article>
   );
+}
+
+function ChangeRequestManagement({ csrf, revision, onChanged }: {
+  csrf: CsrfToken | null;
+  revision: number;
+  onChanged: () => void;
+}) {
+  const [items, setItems] = useState<EmployeeChange[]>([]);
+  const [error, setError] = useState('');
+  const [processing, setProcessing] = useState<number | null>(null);
+
+  const load = () => api<EmployeeChange[]>('/api/admin/employee-change-requests')
+    .then(result => { setItems(result); setError(''); })
+    .catch(e => setError(e.message));
+
+  useEffect(() => { void load(); }, [revision]);
+
+  async function review(id: number, action: 'approve' | 'reject') {
+    setProcessing(id);
+    setError('');
+    try {
+      await api(`/api/admin/employee-change-requests/${id}/${action}`, { method: 'POST' }, csrf);
+      await load();
+      onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '변경 요청을 처리하지 못했습니다.');
+    } finally {
+      setProcessing(null);
+    }
+  }
+
+  return <section className="card table-card">
+    <h2>인적사항 변경 요청</h2>
+    {error && <p className="error">{error}</p>}
+    {items.length === 0 ? <p className="muted">변경 요청 이력이 없습니다.</p> : <table>
+      <thead><tr><th>직원</th><th>변경 전</th><th>요청 내용</th><th>상태</th><th>요청/처리 시각</th><th>처리</th></tr></thead>
+      <tbody>{items.map(item => <tr key={item.id}>
+        <td>{item.employeeNumber}<br />{item.employeeName}</td>
+        <td>{item.previous.fullName}<br />{item.previous.dateOfBirth ?? '미확인'}</td>
+        <td>{item.requested.fullName}<br />{item.requested.dateOfBirth ?? '미확인'}</td>
+        <td><span className={`change-badge ${item.status.toLowerCase()}`}>{CHANGE_LABEL[item.status]}</span></td>
+        <td>요청 {formatDateTime(item.requestedAt)}<br />처리 {formatDateTime(item.reviewedAt)}</td>
+        <td>{item.status === 'PENDING' && <div className="button-group">
+          <button disabled={processing === item.id} onClick={() => void review(item.id, 'approve')}>승인</button>
+          <button className="danger" disabled={processing === item.id} onClick={() => void review(item.id, 'reject')}>반려</button>
+        </div>}</td>
+      </tr>)}</tbody>
+    </table>}
+  </section>;
 }
