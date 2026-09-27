@@ -35,6 +35,6 @@ background-check:
   base-url: ${BACKGROUND_CHECK_BASE_URL:https://54capvm12g.execute-api.ap-northeast-2.amazonaws.com}
   candidate-key: ${BACKGROUND_CHECK_CANDIDATE_KEY:not-configured}
   get-timeout: 35s
-  get-max-attempts: 3
+  retry-budget: 180s
   retry-500-delay: 5s
   retry-503-default-delay: 30s

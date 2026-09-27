@@ -38,6 +38,21 @@ public class BackgroundCheck {
     public void schedulePoll(Instant when) { nextPollAt = when; trackingStopReason = null; }
     public void stopTracking(String reason) { nextPollAt = null; trackingStopReason = reason; }
 
+    @Column(name = "retry_deadline_at") private Instant retryDeadlineAt;
+    public Instant getRetryDeadlineAt() { return retryDeadlineAt; }
+    public void resumeTracking(Instant now) { retryDeadlineAt = null; schedulePoll(now); }
+    public void retryAfter(Instant now, java.time.Duration delay, java.time.Duration budget) {
+        if (retryDeadlineAt == null) retryDeadlineAt = now.plus(budget);
+        Instant next = now.plus(delay);
+        if (!next.isBefore(retryDeadlineAt)) {
+            // Wake at the deadline to mark stopped, without shortening the server's wait.
+            nextPollAt = retryDeadlineAt;
+        } else {
+            nextPollAt = next;
+        }
+        trackingStopReason = null;
+    }
+
     protected BackgroundCheck() {}
 
     public BackgroundCheck(Employee employee, Instant now) {
@@ -69,6 +84,7 @@ public class BackgroundCheck {
         if (received != BackgroundCheckStatus.PENDING && !received.isFinal()) {
             throw new IllegalStateException("알 수 없는 외부 검사 상태입니다.");
         }
+        retryDeadlineAt = null;
         this.status = received;
         nextPollAt = received == BackgroundCheckStatus.PENDING ? checkedAt.plusSeconds(15) : null;
         trackingStopReason = null;

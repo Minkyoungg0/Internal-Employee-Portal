@@ -57,7 +57,7 @@ public class BackgroundCheckPoller {
             log.info("BACKGROUND_CHECK_POLL_FINISHED checkId={} trackingActive={} nextPollAt={}",
                     check.getId(), updated.getNextPollAt() != null, updated.getNextPollAt());
         } catch (ApiException exception) {
-            // Retry exhaustion is distinct from an indefinitely pending external check.
+            // Non-retryable application errors keep the last external status.
             check.stopTracking(exception.getCode());
             repository.save(check);
             log.warn("BACKGROUND_CHECK_TRACKING_STOPPED checkId={} errorCode={}",

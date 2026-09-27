@@ -42,10 +42,37 @@ function EmployeeCreateForm({csrf,onCreated}:{csrf:CsrfToken|null;onCreated:()=>
 
 function EmployeesPage({user,csrf,onLogout}:{user:CurrentUser;csrf:CsrfToken|null;onLogout:()=>Promise<void>}){const [items,setItems]=useState<Employee[]>([]);const [selected,setSelected]=useState<number|null>(null);const load=()=>api<Employee[]>('/api/admin/employees').then(setItems);useEffect(()=>{void load()},[]);return <Shell title="직원 관리" user={user} onLogout={onLogout}><EmployeeCreateForm csrf={csrf} onCreated={()=>void load()}/><section className="card table-card"><h2>전체 직원</h2><table><thead><tr><th>사번</th><th>성명</th><th>생년월일</th><th>상태</th></tr></thead><tbody>{items.map(e=>{const isSelected=selected===e.id;return <Fragment key={e.id}><tr className={isSelected?'selected-row':undefined} onClick={()=>setSelected(isSelected?null:e.id)}><td>{e.employeeNumber}</td><td>{e.fullName}</td><td>{e.dateOfBirth??'확인되지 않음'}</td><td>{e.employmentStatus==='ACTIVE'?'재직':'퇴사'}</td></tr>{isSelected&&<tr className="panel-row"><td colSpan={4}><EmployeePanel id={e.id} csrf={csrf} onChanged={()=>void load()}/></td></tr>}</Fragment>})}</tbody></table></section></Shell>}
 
-function EmployeePanel({id,csrf,onChanged}:{id:number;csrf:CsrfToken|null;onChanged:()=>void}){const [employee,setEmployee]=useState<EmployeeDetail|null>(null);const [checks,setChecks]=useState<Check[]>([]);const [error,setError]=useState('');const load=()=>Promise.all([api<EmployeeDetail>(`/api/admin/employees/${id}`),api<Check[]>(`/api/admin/employees/${id}/background-checks`)]).then(([e,c])=>{setEmployee(e);setChecks(c);setError('')}).catch(x=>setError(x.message));useEffect(()=>{void load()},[id]);async function terminate(){const date=window.prompt('실제 퇴사일을 YYYY-MM-DD 형식으로 입력하세요.');if(!date)return;try{await api(`/api/admin/employees/${id}/termination`,{method:'POST',body:JSON.stringify({terminationDate:date})},csrf);await load();onChanged()}catch(x){setError(x instanceof Error?x.message:'퇴사 처리하지 못했습니다.')}}async function start(){try{await api(`/api/admin/employees/${id}/background-checks`,{method:'POST'},csrf);await load()}catch(x){setError(x instanceof Error?x.message:'검사를 시작하지 못했습니다.')}}return <div className="panel">{error&&<p className="error">{error}</p>}{employee&&<><div className="row"><div><h2>{employee.fullName}</h2><p>{employee.employeeNumber} · {employee.dateOfBirth??'생년월일 미확인'} · {employee.account?.username}</p></div>{employee.employmentStatus==='ACTIVE'&&<button className="danger" onClick={()=>void terminate()}>퇴사 처리</button>}</div>{employee.terminationDate&&<p>실제 퇴사일 {employee.terminationDate} · 처리 시각 {employee.terminatedAt}</p>}<div className="row"><h3>Background Check</h3><button onClick={()=>void start()}>검사 시작</button></div>{checks.length===0?<p className="muted">검사 이력이 없습니다.</p>:checks.map(c=><CheckResult key={c.id} employeeId={id} initial={c}/>)}</>}</div>}
+function EmployeePanel({id,csrf,onChanged}:{id:number;csrf:CsrfToken|null;onChanged:()=>void}){const [employee,setEmployee]=useState<EmployeeDetail|null>(null);const [checks,setChecks]=useState<Check[]>([]);const [error,setError]=useState('');const [submitting,setSubmitting]=useState(false);const load=()=>Promise.all([api<EmployeeDetail>(`/api/admin/employees/${id}`),api<Check[]>(`/api/admin/employees/${id}/background-checks`)]).then(([e,c])=>{setEmployee(e);setChecks(c);setError('')}).catch(x=>setError(x.message));useEffect(()=>{void load()},[id]);async function terminate(){const date=window.prompt('실제 퇴사일을 YYYY-MM-DD 형식으로 입력하세요.');if(!date)return;try{await api(`/api/admin/employees/${id}/termination`,{method:'POST',body:JSON.stringify({terminationDate:date})},csrf);await load();onChanged()}catch(x){setError(x instanceof Error?x.message:'퇴사 처리하지 못했습니다.')}}async function start(){
+  if(submitting)return;
+  setSubmitting(true);
+  setError('');
+  try {
+    const created=await api<Check>(`/api/admin/employees/${id}/background-checks`,{method:'POST'},csrf);
+    setChecks(previous=>[created,...previous.filter(check=>check.id!==created.id)]);
+  } catch(x) {
+    setError(x instanceof Error?x.message:'검사를 시작하지 못했습니다.');
+  } finally {
+    setSubmitting(false);
+  }
+}return <div className="panel">{error&&<p className="error">{error}</p>}{employee&&<><div className="row"><div><h2>{employee.fullName}</h2><p>{employee.employeeNumber} · {employee.dateOfBirth??'생년월일 미확인'} · {employee.account?.username}</p></div>{employee.employmentStatus==='ACTIVE'&&<button className="danger" onClick={()=>void terminate()}>퇴사 처리</button>}</div>{employee.terminationDate&&<p>실제 퇴사일 {employee.terminationDate} · 처리 시각 {employee.terminatedAt}</p>}<div className="row"><h3>Background Check</h3><button disabled={submitting} aria-busy={submitting} onClick={()=>void start()}>{submitting?'접수 중…':'검사 시작'}</button></div>{checks.length===0?<p className="muted">검사 이력이 없습니다.</p>:checks.map(c=><CheckResult key={c.id} employeeId={id} initial={c} csrf={csrf}/>)}</>}</div>}
 
-function CheckResult({employeeId, initial}:{employeeId:number;initial:Check}) {
+function CheckResult({employeeId, initial, csrf}:{employeeId:number;initial:Check;csrf:CsrfToken|null}) {
   const [check,setCheck]=useState(initial);
+  const [retrying,setRetrying]=useState(false);
+  const [revision,setRevision]=useState(0);
+  async function retry(){
+    if(retrying)return;
+    setRetrying(true);
+    setError('');
+    try {
+      const updated=await api<Check>(`/api/admin/employees/${employeeId}/background-checks/${initial.id}/retry`,{method:'POST'},csrf);
+      setCheck(updated);
+      setRevision(value=>value+1);
+    } catch(e) {
+      setError(e instanceof Error?e.message:'재시도 요청에 실패했습니다.');
+    } finally {setRetrying(false);}
+  }
+
   const [error,setError]=useState('');
   useEffect(()=>{
     const controller=new AbortController();
@@ -63,11 +90,12 @@ function CheckResult({employeeId, initial}:{employeeId:number;initial:Check}) {
     }
     void read();
     return ()=>{controller.abort();if(timer)clearTimeout(timer)};
-  },[employeeId,initial]);
+  },[employeeId,initial,revision]);
   return <article className="check">
-    <div><strong>{check.trackingActive?'검사 진행 중':check.status}</strong>
+    <div><strong role="status">{check.trackingActive?'검사 진행 중':check.status}</strong>
       <span>{new Date(check.requestedAt).toLocaleString()}</span></div>
     {check.trackingStopReason&&<p className="error">자동 결과 확인이 중단되었습니다. ({check.trackingStopReason})</p>}
+    {check.trackingStopReason&&!check.trackingActive&&check.externalCheckId&&<button disabled={retrying} onClick={()=>void retry()}>{retrying?'재시도 접수 중…':'재시도'}</button>}
     {error&&<p className="error">{error}</p>}
     {!check.trackingActive&&check.result&&<p>범죄 기록 {String(check.result.criminalRecord)} · 학력 확인 {String(check.result.educationVerified)} · 경력 확인 {String(check.result.employmentVerified)} · 신용 {check.result.creditScore}</p>}
   </article>;

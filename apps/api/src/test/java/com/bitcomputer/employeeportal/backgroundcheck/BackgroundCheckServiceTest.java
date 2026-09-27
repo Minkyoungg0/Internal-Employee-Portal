@@ -73,6 +73,6 @@ class BackgroundCheckServiceTest {
         BackgroundCheck result = service.refresh(3L, 8L, 2L);
 
         assertEquals(BackgroundCheckStatus.CLEAR, result.getStatus());
-        verify(client, never()).get(any(), any(), any());
+        verify(client, never()).get(any(), any(), any(), any());
     }
 }

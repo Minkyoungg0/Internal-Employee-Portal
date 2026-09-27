@@ -22,6 +22,8 @@ public class BackgroundCheckService {
     private final EmployeeRepository employeeRepository;
     private final BackgroundCheckRepository repository;
     private final BackgroundCheckClient client;
+    @org.springframework.beans.factory.annotation.Value("${background-check.retry-budget:180s}")
+    private java.time.Duration retryBudget = java.time.Duration.ofSeconds(180);
 
     public BackgroundCheckService(EmployeeRepository employeeRepository, BackgroundCheckRepository repository,
                                   BackgroundCheckClient client) {
@@ -75,50 +77,61 @@ public class BackgroundCheckService {
     }
 
     public BackgroundCheck refresh(Long employeeId, Long checkId, Long actorAccountId) {
-        log.info("BACKGROUND_CHECK_REFRESH_REQUESTED checkId={} employeeId={} actorAccountId={}",
-                checkId, employeeId, actorAccountId);
         BackgroundCheck check = find(employeeId, checkId);
-        if (check.getStatus().isFinal() && check.getNextPollAt() == null) {
-            log.info("BACKGROUND_CHECK_REFRESH_SKIPPED checkId={} employeeId={} actorAccountId={} status={} reason=ALREADY_FINAL",
-                    checkId, employeeId, actorAccountId, check.getStatus());
-            return check;
-        }
-        if (check.getExternalCheckId() == null)
-            throw new ApiException(HttpStatus.CONFLICT, "CHECK_ID_UNAVAILABLE", "외부 검사 식별자가 없어 결과를 조회할 수 없습니다.");
-        BackgroundCheckStatus previousStatus = check.getStatus();
-        try {
-            ExternalBackgroundCheck result = client.get(checkId, employeeId, check.getExternalCheckId());
-            validateIdentity(check.getEmployee(), result);
-            if (!check.getExternalCheckId().equals(result.checkId())) {
-                throw new IOException("검사 식별자가 일치하지 않습니다.");
-            }
-            check.apply(result, Instant.now());
-            log.info("BACKGROUND_CHECK_STATUS_CHANGED checkId={} employeeId={} actorAccountId={} previousStatus={} newStatus={}",
-                    checkId, employeeId, actorAccountId, previousStatus, check.getStatus());
+        if (check.getNextPollAt() == null) return check;
+        Instant now = Instant.now();
+        java.time.Duration remaining = check.getRetryDeadlineAt() == null ? null
+                : java.time.Duration.between(now, check.getRetryDeadlineAt());
+        if (remaining != null && (remaining.isNegative() || remaining.isZero())) {
+            check.stopTracking("RETRY_TIME_EXHAUSTED");
             return repository.save(check);
-        } catch (HttpTimeoutException exception) {
-            log.warn("BACKGROUND_CHECK_REFRESH_FAILED checkId={} employeeId={} actorAccountId={} errorCode=BACKGROUND_CHECK_TIMEOUT",
-                    checkId, employeeId, actorAccountId);
-            throw new ApiException(HttpStatus.GATEWAY_TIMEOUT, "BACKGROUND_CHECK_TIMEOUT", "외부 검사 결과 조회 시간이 초과되었습니다.");
+        }
+        try {
+            ExternalBackgroundCheck result = client.get(checkId, employeeId, check.getExternalCheckId(), remaining);
+            validateIdentity(check.getEmployee(), result);
+            if (!check.getExternalCheckId().equals(result.checkId()))
+                throw new IOException("검사 식별자가 일치하지 않습니다.");
+            if (check.getRetryDeadlineAt() != null && !Instant.now().isBefore(check.getRetryDeadlineAt())) {
+                check.stopTracking("RETRY_TIME_EXHAUSTED");
+            } else {
+                check.apply(result, Instant.now());
+            }
         } catch (BackgroundCheckClient.ExternalHttpException exception) {
-            log.warn("BACKGROUND_CHECK_REFRESH_FAILED checkId={} employeeId={} actorAccountId={} errorCode=BACKGROUND_CHECK_UNAVAILABLE httpStatus={}",
-                    checkId, employeeId, actorAccountId, exception.getStatus());
-            HttpStatus status = exception.getStatus() == 503 ? HttpStatus.SERVICE_UNAVAILABLE : HttpStatus.BAD_GATEWAY;
-            throw new ApiException(status, "BACKGROUND_CHECK_UNAVAILABLE", "외부 검사 결과를 조회하지 못했습니다. 잠시 후 다시 시도해 주세요.");
-        } catch (IOException exception) {
-            log.warn("BACKGROUND_CHECK_REFRESH_FAILED checkId={} employeeId={} actorAccountId={} errorCode=BACKGROUND_CHECK_INVALID_RESPONSE errorType={}",
-                    checkId, employeeId, actorAccountId, exception.getClass().getSimpleName());
-            throw new ApiException(HttpStatus.BAD_GATEWAY, "BACKGROUND_CHECK_INVALID_RESPONSE", "외부 검사 응답을 처리하지 못했습니다.");
+            if (exception.getRetryDelay() != null) {
+                check.retryAfter(Instant.now(), exception.getRetryDelay(), retryBudget);
+                log.warn("BACKGROUND_CHECK_RETRY_SCHEDULED checkId={} httpStatus={} nextPollAt={} retryDeadlineAt={}",
+                        checkId, exception.getStatus(), check.getNextPollAt(), check.getRetryDeadlineAt());
+            } else {
+                check.stopTracking("EXTERNAL_HTTP_" + exception.getStatus());
+            }
+        } catch (HttpTimeoutException exception) {
+            if (check.getRetryDeadlineAt() != null && !Instant.now().isBefore(check.getRetryDeadlineAt()))
+                check.stopTracking("RETRY_TIME_EXHAUSTED");
+            else check.stopTracking("BACKGROUND_CHECK_TIMEOUT");
+        } catch (IOException | IllegalStateException exception) {
+            check.stopTracking("BACKGROUND_CHECK_INVALID_RESPONSE");
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
-            log.warn("BACKGROUND_CHECK_REFRESH_FAILED checkId={} employeeId={} actorAccountId={} errorCode=BACKGROUND_CHECK_INTERRUPTED",
-                    checkId, employeeId, actorAccountId);
-            throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "BACKGROUND_CHECK_INTERRUPTED", "외부 검사 조회가 중단되었습니다.");
-        } catch (IllegalStateException exception) {
-            log.warn("BACKGROUND_CHECK_REFRESH_FAILED checkId={} employeeId={} actorAccountId={} errorCode=BACKGROUND_CHECK_INVALID_RESPONSE errorType={}",
-                    checkId, employeeId, actorAccountId, exception.getClass().getSimpleName());
-            throw new ApiException(HttpStatus.BAD_GATEWAY, "BACKGROUND_CHECK_INVALID_RESPONSE", "외부 검사 응답을 처리하지 못했습니다.");
+            // Keep the persisted schedule for restart recovery.
+            return check;
         }
+        log.info("BACKGROUND_CHECK_POLL_STATE checkId={} status={} trackingActive={} stopReason={}",
+                checkId, check.getStatus(), check.getNextPollAt() != null, check.getTrackingStopReason());
+        return repository.save(check);
+    }
+
+    @Transactional
+    public BackgroundCheck retry(Long employeeId, Long checkId, Long actorAccountId) {
+        BackgroundCheck check = repository.findForUpdate(checkId, employeeId)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "BACKGROUND_CHECK_NOT_FOUND", "검사 이력을 찾을 수 없습니다."));
+        if (check.getExternalCheckId() == null)
+            throw new ApiException(HttpStatus.CONFLICT, "CHECK_ID_UNAVAILABLE", "외부 검사 식별자가 없어 재시도할 수 없습니다.");
+        if (check.getNextPollAt() != null) return check;
+        if (check.getTrackingStopReason() == null)
+            throw new ApiException(HttpStatus.CONFLICT, "CHECK_NOT_STOPPED", "중단된 검사만 재시도할 수 있습니다.");
+        check.resumeTracking(Instant.now());
+        log.info("BACKGROUND_CHECK_TRACKING_RESUMED checkId={} employeeId={} actorAccountId={}", checkId, employeeId, actorAccountId);
+        return check;
     }
 
     @Transactional(readOnly = true)

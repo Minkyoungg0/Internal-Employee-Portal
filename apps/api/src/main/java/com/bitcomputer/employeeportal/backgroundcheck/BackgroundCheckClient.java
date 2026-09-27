@@ -24,7 +24,6 @@ public class BackgroundCheckClient {
     private final String candidateKey;
     private final ObjectMapper objectMapper;
     private final Duration getTimeout;
-    private final int getMaxAttempts;
     private final Duration retry500Delay;
     private final Duration retry503DefaultDelay;
     private final HttpClient httpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
@@ -32,7 +31,6 @@ public class BackgroundCheckClient {
     public BackgroundCheckClient(@Value("${background-check.base-url}") String baseUrl,
                                  @Value("${background-check.candidate-key}") String candidateKey,
                                  @Value("${background-check.get-timeout}") Duration getTimeout,
-                                 @Value("${background-check.get-max-attempts}") int getMaxAttempts,
                                  @Value("${background-check.retry-500-delay}") Duration retry500Delay,
                                  @Value("${background-check.retry-503-default-delay}") Duration retry503DefaultDelay,
                                  ObjectMapper objectMapper) {
@@ -40,7 +38,6 @@ public class BackgroundCheckClient {
         this.candidateKey = candidateKey;
         this.objectMapper = objectMapper;
         this.getTimeout = getTimeout;
-        this.getMaxAttempts = getMaxAttempts;
         this.retry500Delay = retry500Delay;
         this.retry503DefaultDelay = retry503DefaultDelay;
     }
@@ -60,7 +57,7 @@ public class BackgroundCheckClient {
             if (response.statusCode() != 201) {
                 log.warn("BACKGROUND_CHECK_POST_COMPLETED checkId={} employeeId={} httpStatus={} latencyMs={} outcome=FAILED",
                         checkId, employeeId, response.statusCode(), latencyMs);
-                throw new ExternalHttpException(response.statusCode(), response.body());
+                throw new ExternalHttpException(response.statusCode(), null);
             }
             try {
                 ExternalBackgroundCheck result = parse(response.body());
@@ -85,51 +82,28 @@ public class BackgroundCheckClient {
         }
     }
 
-    public ExternalBackgroundCheck get(Long checkId, Long employeeId, String externalCheckId) throws IOException, InterruptedException {
-        int attempts = 0;
-        while (true) {
-            attempts++;
-            long startedAt = System.nanoTime();
-            HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl + "/background-checks/" +
-                            URLEncoder.encode(externalCheckId, StandardCharsets.UTF_8)))
-                    .timeout(getTimeout).header("X-Candidate-Key", candidateKey).GET().build();
-            try {
-                HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-                long latencyMs = elapsedMillis(startedAt);
-                if (response.statusCode() == 200) {
-                    try {
-                        ExternalBackgroundCheck result = parse(response.body());
-                        log.info("BACKGROUND_CHECK_GET_COMPLETED checkId={} employeeId={} externalCheckId={} attempt={} httpStatus={} latencyMs={} status={} outcome=SUCCESS",
-                                checkId, employeeId, externalCheckId, attempts, response.statusCode(), latencyMs, result.status());
-                        return result;
-                    } catch (IOException exception) {
-                        log.error("BACKGROUND_CHECK_GET_INVALID_RESPONSE checkId={} employeeId={} externalCheckId={} attempt={} httpStatus={} latencyMs={}",
-                                checkId, employeeId, externalCheckId, attempts, response.statusCode(), latencyMs);
-                        throw exception;
-                    }
-                }
-                boolean retryable = (response.statusCode() == 500 || response.statusCode() == 503)
-                        && attempts < getMaxAttempts;
-                if (!retryable) {
-                    log.warn("BACKGROUND_CHECK_GET_COMPLETED checkId={} employeeId={} externalCheckId={} attempt={} httpStatus={} latencyMs={} outcome=FAILED",
-                            checkId, employeeId, externalCheckId, attempts, response.statusCode(), latencyMs);
-                    throw new ExternalHttpException(response.statusCode(), response.body());
-                }
-                Duration retryDelay = response.statusCode() == 500 ? retry500Delay : retryAfter(response);
-                log.warn("BACKGROUND_CHECK_GET_RETRY checkId={} employeeId={} externalCheckId={} attempt={} httpStatus={} latencyMs={} retryDelaySeconds={} outcome=RETRY",
-                        checkId, employeeId, externalCheckId, attempts, response.statusCode(), latencyMs, retryDelay.toSeconds());
-                Thread.sleep(retryDelay.toMillis());
-            } catch (IOException exception) {
-                if (!(exception instanceof ExternalHttpException)) {
-                    log.warn("BACKGROUND_CHECK_GET_IO_ERROR checkId={} employeeId={} externalCheckId={} attempt={} latencyMs={} errorType={}",
-                            checkId, employeeId, externalCheckId, attempts, elapsedMillis(startedAt), exception.getClass().getSimpleName());
-                }
-                throw exception;
-            } catch (InterruptedException exception) {
-                log.warn("BACKGROUND_CHECK_GET_INTERRUPTED checkId={} employeeId={} externalCheckId={} attempt={} latencyMs={}",
-                        checkId, employeeId, externalCheckId, attempts, elapsedMillis(startedAt));
-                throw exception;
+    /** One HTTP attempt; the DB scheduler owns retry timing. */
+    public ExternalBackgroundCheck get(Long checkId, Long employeeId, String externalCheckId,
+                                       Duration remaining) throws IOException, InterruptedException {
+        Duration timeout = remaining == null || remaining.compareTo(getTimeout) > 0 ? getTimeout : remaining;
+        long startedAt = System.nanoTime();
+        HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl + "/background-checks/" +
+                        URLEncoder.encode(externalCheckId, StandardCharsets.UTF_8)))
+                .timeout(timeout).header("X-Candidate-Key", candidateKey).GET().build();
+        try {
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            log.info("BACKGROUND_CHECK_GET_COMPLETED checkId={} employeeId={} httpStatus={} latencyMs={}",
+                    checkId, employeeId, response.statusCode(), elapsedMillis(startedAt));
+            if (response.statusCode() != 200) {
+                Duration delay = response.statusCode() == 500 ? retry500Delay
+                        : response.statusCode() == 503 ? retryAfter(response) : null;
+                throw new ExternalHttpException(response.statusCode(), delay);
             }
+            return parse(response.body());
+        } catch (IOException exception) {
+            log.warn("BACKGROUND_CHECK_GET_ERROR checkId={} errorType={}",
+                    checkId, exception.getClass().getSimpleName());
+            throw exception;
         }
     }
 
@@ -139,7 +113,18 @@ public class BackgroundCheckClient {
 
     private Duration retryAfter(HttpResponse<String> response) {
         String header = response.headers().firstValue("Retry-After").orElse(null);
-        if (header != null) try { return Duration.ofSeconds(Integer.parseInt(header)); } catch (NumberFormatException ignored) {}
+        if (header != null) {
+            try {
+                long seconds = Long.parseLong(header);
+                if (seconds >= 0) return Duration.ofSeconds(seconds);
+            } catch (NumberFormatException ignored) {
+                try {
+                    Duration delay = Duration.between(Instant.now(),
+                            java.time.ZonedDateTime.parse(header, java.time.format.DateTimeFormatter.RFC_1123_DATE_TIME).toInstant());
+                    if (!delay.isNegative()) return delay;
+                } catch (java.time.DateTimeException invalidDate) { /* Use body/default. */ }
+            }
+        }
         try {
             int bodyValue = objectMapper.readTree(response.body()).path("retryAfter").asInt(0);
             if (bodyValue > 0) return Duration.ofSeconds(bodyValue);
@@ -171,7 +156,13 @@ public class BackgroundCheckClient {
 
     public static class ExternalHttpException extends IOException {
         private final int status;
-        ExternalHttpException(int status, String ignoredBody) { super("Background Check API HTTP " + status); this.status = status; }
+        private final Duration retryDelay;
+        ExternalHttpException(int status, Duration retryDelay) {
+            super("Background Check API HTTP " + status);
+            this.status = status;
+            this.retryDelay = retryDelay;
+        }
+        public Duration getRetryDelay() { return retryDelay; }
         public int getStatus() { return status; }
     }
 }

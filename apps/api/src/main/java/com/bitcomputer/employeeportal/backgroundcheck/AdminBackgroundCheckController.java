@@ -42,6 +42,12 @@ public class AdminBackgroundCheckController {
         return BackgroundCheckResponse.from(service.find(employeeId, checkId), true);
     }
 
+    @PostMapping("/{checkId}/retry")
+    BackgroundCheckResponse retry(@PathVariable Long employeeId, @PathVariable Long checkId,
+                                  @AuthenticationPrincipal PortalPrincipal principal) {
+        return BackgroundCheckResponse.from(service.retry(employeeId, checkId, principal.accountId()), true);
+    }
+
     record BackgroundCheckResponse(Long id, String externalCheckId, String submittedFirstName,
                                    String submittedLastName, LocalDate submittedDateOfBirth,
                                    BackgroundCheckStatus status, Result result, Instant requestedAt,

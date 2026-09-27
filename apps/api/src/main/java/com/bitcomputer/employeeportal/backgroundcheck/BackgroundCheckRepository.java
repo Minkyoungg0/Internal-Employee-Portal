@@ -14,5 +14,9 @@ public interface BackgroundCheckRepository extends JpaRepository<BackgroundCheck
     List<BackgroundCheck> findAllByEmployeeIdOrderByRequestedAtDesc(Long employeeId);
     @Query("select check from BackgroundCheck check join fetch check.employee where check.id = :id and check.employee.id = :employeeId")
     Optional<BackgroundCheck> findByIdAndEmployeeId(@Param("id") Long id, @Param("employeeId") Long employeeId);
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("select c from BackgroundCheck c where c.id = :id and c.employee.id = :employeeId")
+    Optional<BackgroundCheck> findForUpdate(@Param("id") Long id, @Param("employeeId") Long employeeId);
+
     boolean existsByEmployeeIdAndStatusIn(Long employeeId, Collection<BackgroundCheckStatus> statuses);
 }
