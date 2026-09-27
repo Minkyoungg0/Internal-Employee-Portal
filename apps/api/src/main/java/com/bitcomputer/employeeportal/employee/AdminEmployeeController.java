@@ -6,6 +6,9 @@ import com.bitcomputer.employeeportal.backgroundcheck.BackgroundCheckStatus;
 import com.bitcomputer.employeeportal.auth.EmployeeAccount;
 import com.bitcomputer.employeeportal.auth.EmployeeAccountRepository;
 import com.bitcomputer.employeeportal.common.ApiException;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -29,6 +32,8 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 
 @RestController
 @RequestMapping("/api/admin/employees")
+@Tag(name = "관리자 직원 관리")
+@SecurityRequirement(name = "sessionCookie")
 public class AdminEmployeeController {
     private final EmployeeRepository employeeRepository;
     private final EmployeeAccountRepository accountRepository;
@@ -47,6 +52,7 @@ public class AdminEmployeeController {
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     @Transactional
+    @Operation(summary = "직원 계정 생성", description = "직원 인적사항과 로그인 아이디, 초기 비밀번호를 받아 직원 계정을 생성합니다.")
     EmployeeDetail create(@Valid @RequestBody CreateEmployeeRequest request) {
         if (employeeRepository.existsByEmployeeNumber(request.employeeNumber()))
             throw new ApiException(HttpStatus.CONFLICT, "EMPLOYEE_NUMBER_DUPLICATED", "이미 사용 중인 사번입니다.");
@@ -60,14 +66,16 @@ public class AdminEmployeeController {
     }
 
     @GetMapping
+    @Operation(summary = "전체 직원 조회", description = "관리자 계정을 제외한 전체 직원을 사번순으로 조회하며 가장 최근 Background Check 상태를 함께 반환합니다.")
     List<EmployeeSummary> list() {
         var latest = checkRepository.findLatestStatuses().stream().collect(
                 java.util.stream.Collectors.toMap(BackgroundCheckRepository.LatestStatus::getEmployeeId, LatestCheck::from));
-        return employeeRepository.findAllByOrderByEmployeeNumberAsc().stream()
+        return employeeRepository.findAllNonAdminEmployeesOrderByEmployeeNumberAsc().stream()
                 .map(e -> EmployeeSummary.from(e, latest.get(e.getId()))).toList();
     }
 
     @GetMapping("/{id}")
+    @Operation(summary = "직원 상세 조회", description = "직원 인적사항, 재직 상태, 퇴사 정보와 계정 상태를 조회합니다.")
     EmployeeDetail detail(@PathVariable Long id) {
         Employee employee = findEmployee(id);
         EmployeeAccount account = accountRepository.findByEmployeeId(id).orElse(null);
@@ -76,6 +84,7 @@ public class AdminEmployeeController {
 
     @PostMapping("/{id}/termination")
     @Transactional
+    @Operation(summary = "직원 퇴사 처리", description = "실제 퇴사일과 시스템 처리 시각을 기록하고 해당 직원 계정을 즉시 비활성화합니다.")
     EmployeeDetail terminate(@PathVariable Long id, @Valid @RequestBody TerminationRequest request) {
         Employee employee = employeeRepository.findByIdForUpdate(id)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "EMPLOYEE_NOT_FOUND", "직원을 찾을 수 없습니다."));

@@ -44,7 +44,8 @@ public class SecurityConfig {
                 .securityContext(context -> context
                         .securityContextRepository(new HttpSessionSecurityContextRepository()))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/api/health", "/actuator/health", "/api/auth/csrf", "/api/auth/login").permitAll()
+                        .requestMatchers("/api/health", "/actuator/health", "/api/auth/csrf", "/api/auth/login",
+                                "/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs/**").permitAll()
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         .requestMatchers("/api/me/**", "/api/auth/me", "/api/auth/logout").hasAnyRole("EMPLOYEE", "ADMIN")
                         .anyRequest().authenticated())
