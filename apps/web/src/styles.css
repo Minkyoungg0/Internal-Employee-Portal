@@ -79,7 +79,14 @@ tbody tr.panel-row td { padding: 0; border-bottom: 1px solid #edf0f5; }
 .check-badge.clear { background:#e8f6ed; color:#176b39; }
 .check-badge.flagged, .check-badge.stopped, .check-badge.submission_failed { background:#fff0e5; color:#984300; }
 .check-badge.pending, .check-badge.requesting { background:#eaf0ff; color:#3157d5; }
-.check-date { display:block; margin-top:6px; color:#6b7485; font-size:12px; }
 button.secondary { background:white; color:#3157d5; border:1px solid #cbd3df; white-space:nowrap; }
 .employee-actions { display: flex; gap: 5px; align-items: center; white-space: nowrap; }
 button.small { padding: 4px 7px; border-radius: 6px; font-size: 11px; }
+.modal-backdrop { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 24px; background: rgba(18, 27, 45, .55); }
+.modal-card { width: min(760px, 100%); max-height: calc(100vh - 48px); overflow: hidden; display: grid; grid-template-rows: auto minmax(0, 1fr); background: white; border-radius: 14px; box-shadow: 0 24px 70px rgba(18, 27, 45, .28); }
+.modal-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 20px; border-bottom: 1px solid #e2e7ef; }
+.modal-header h2, .modal-header p { margin: 0; }
+.modal-header h2 { font-size: 17px; }
+.modal-header p { margin-top: 4px; color: #6b7485; font-size: 12px; }
+.modal-content { min-height: 0; overflow-y: auto; }
+.modal-content .panel { background: white; }

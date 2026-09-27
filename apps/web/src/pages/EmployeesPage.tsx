@@ -147,7 +147,7 @@ export function EmployeesPage({
               <th>성명</th>
               <th>생년월일</th>
               <th>재직 상태</th>
-              <th>최신 Background Check</th>
+              <th>Background Check</th>
               <th>작업</th>
             </tr>
           </thead>
@@ -179,9 +179,6 @@ export function EmployeesPage({
                     >
                       {checkLabel(e.latestBackgroundCheck)}
                     </span>
-                    {e.latestBackgroundCheck && (
-                      <small className="check-date">{formatDateTime(e.latestBackgroundCheck.requestedAt)}</small>
-                    )}
                   </td>
                   <td>
                     <EmployeeActions
@@ -203,20 +200,52 @@ export function EmployeesPage({
                     </td>
                   </tr>
                 )}
-                {history === e.id && (
-                  <tr className="panel-row">
-                    <td colSpan={6}>
-                      <CheckHistory employeeId={e.id} csrf={csrf} latestId={e.latestBackgroundCheck?.id} />
-                    </td>
-                  </tr>
-                )}
               </Fragment>
             ))}
           </tbody>
         </table>
       </section>
+      {history !== null && (() => {
+        const employee = items.find(item => item.id === history);
+        return employee ? (
+          <CheckHistoryModal employee={employee} csrf={csrf} onClose={() => setHistory(null)} />
+        ) : null;
+      })()}
     </Shell>
   );
+}
+
+function CheckHistoryModal({ employee, csrf, onClose }: {
+  employee: Employee;
+  csrf: CsrfToken | null;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [onClose]);
+
+  return <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
+    <section
+      className="modal-card"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="check-history-title"
+      onMouseDown={event => event.stopPropagation()}
+    >
+      <div className="modal-header">
+        <div>
+          <h2 id="check-history-title">검사 이력</h2>
+          <p>{employee.employeeNumber} · {employee.fullName}</p>
+        </div>
+        <button className="secondary small" aria-label="검사 이력 닫기" onClick={onClose}>닫기</button>
+      </div>
+      <div className="modal-content">
+        <CheckHistory employeeId={employee.id} csrf={csrf} latestId={employee.latestBackgroundCheck?.id} />
+      </div>
+    </section>
+  </div>;
 }
 
 function EmployeePanel({
@@ -262,7 +291,7 @@ function EmployeePanel({
               실제 퇴사일 {employee.terminationDate} · 처리 시각 {formatDateTime(employee.terminatedAt)}
             </p>
           )}
-          {latestDetail && <CheckResult employeeId={id} initial={latestDetail} csrf={csrf} title="최신 검사 결과" />}
+          {latestDetail && <CheckResult employeeId={id} initial={latestDetail} csrf={csrf} title="검사 결과" />}
         </>
       )}
     </div>
