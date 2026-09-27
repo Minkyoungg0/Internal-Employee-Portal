@@ -81,3 +81,5 @@ tbody tr.panel-row td { padding: 0; border-bottom: 1px solid #edf0f5; }
 .check-badge.pending, .check-badge.requesting { background:#eaf0ff; color:#3157d5; }
 .check-date { display:block; margin-top:6px; color:#6b7485; font-size:12px; }
 button.secondary { background:white; color:#3157d5; border:1px solid #cbd3df; white-space:nowrap; }
+.employee-actions { display: flex; gap: 5px; align-items: center; white-space: nowrap; }
+button.small { padding: 4px 7px; border-radius: 6px; font-size: 11px; }

@@ -148,7 +148,7 @@ export function EmployeesPage({
               <th>생년월일</th>
               <th>재직 상태</th>
               <th>최신 Background Check</th>
-              <th>조회</th>
+              <th>작업</th>
             </tr>
           </thead>
           <tbody>
@@ -159,7 +159,7 @@ export function EmployeesPage({
                   onClick={() => {
                     const closing = selected === e.id;
                     setSelected(closing ? null : e.id);
-                    if (closing) setHistory(null);
+                    setHistory(null);
                   }}
                 >
                   <td>{e.employeeNumber}</td>
@@ -184,22 +184,22 @@ export function EmployeesPage({
                     )}
                   </td>
                   <td>
-                    <button
-                      className="secondary"
-                      aria-expanded={history === e.id}
-                      onClick={event => {
-                        event.stopPropagation();
+                    <EmployeeActions
+                      employee={e}
+                      csrf={csrf}
+                      historyOpen={history === e.id}
+                      onHistory={() => {
+                        setSelected(null);
                         setHistory(history === e.id ? null : e.id);
                       }}
-                    >
-                      {history === e.id ? '이력 닫기' : '검사 이력'}
-                    </button>
+                      onChanged={changed}
+                    />
                   </td>
                 </tr>
                 {selected === e.id && (
                   <tr className="panel-row">
                     <td colSpan={6}>
-                      <EmployeePanel id={e.id} csrf={csrf} latest={e.latestBackgroundCheck} onChanged={changed} />
+                      <EmployeePanel id={e.id} csrf={csrf} latest={e.latestBackgroundCheck} />
                     </td>
                   </tr>
                 )}
@@ -223,17 +223,13 @@ function EmployeePanel({
   id,
   csrf,
   latest,
-  onChanged,
 }: {
   id: number;
   csrf: CsrfToken | null;
   latest: LatestCheck | null;
-  onChanged: () => void;
 }) {
   const [employee, setEmployee] = useState<EmployeeDetail | null>(null);
   const [error, setError] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-  const [accepted, setAccepted] = useState<LatestCheck | null>(null);
   const [latestDetail, setLatestDetail] = useState<Check | null>(null);
 
   const load = () => api<EmployeeDetail>(`/api/admin/employees/${id}`).then(setEmployee).catch(e => setError(e.message));
@@ -241,37 +237,7 @@ function EmployeePanel({
     void load();
   }, [id]);
 
-  async function terminate() {
-    const date = window.prompt('실제 퇴사일을 YYYY-MM-DD 형식으로 입력하세요.');
-    if (!date) return;
-    try {
-      await api(`/api/admin/employees/${id}/termination`, { method: 'POST', body: JSON.stringify({ terminationDate: date }) }, csrf);
-      await load();
-      onChanged();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : '퇴사 처리 실패');
-    }
-  }
-
-  async function start() {
-    if (submitting) return;
-    setSubmitting(true);
-    setError('');
-    try {
-      const created = await api<Check>(`/api/admin/employees/${id}/background-checks`, { method: 'POST' }, csrf);
-      setAccepted(created);
-      onChanged();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : '검사 접수 실패');
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  const current = accepted && (!latest || accepted.id > latest.id) ? accepted : latest;
-  const checkInProgress = Boolean(current && (
-    current.trackingActive || current.status === 'REQUESTING' || current.status === 'PENDING'
-  ));
+  const current = latest;
 
   useEffect(() => {
     if (!current?.id) {
@@ -290,35 +256,80 @@ function EmployeePanel({
       {error && <p className="error">{error}</p>}
       {employee && (
         <>
-          <div className="row">
-            <div>
-              <h2>{employee.fullName}</h2>
-              <p>
-                {employee.employeeNumber} · {employee.account?.username}
-              </p>
-            </div>
-            {employee.employmentStatus === 'ACTIVE' && (
-              <button className="danger" onClick={() => void terminate()}>
-                퇴사 처리
-              </button>
-            )}
-          </div>
+          <div className="row"><div><h2>{employee.fullName}</h2><p>{employee.employeeNumber} · {employee.account?.username}</p></div></div>
           {employee.terminationDate && (
             <p>
               실제 퇴사일 {employee.terminationDate} · 처리 시각 {formatDateTime(employee.terminatedAt)}
             </p>
           )}
-          <div className="row">
-            <p role="status">{submitting ? '접수 중…' : checkLabel(current)}</p>
-            <button disabled={submitting || checkInProgress} aria-busy={submitting} onClick={() => void start()}>
-              {submitting ? '접수 중…' : '검사 시작'}
-            </button>
-          </div>
           {latestDetail && <CheckResult employeeId={id} initial={latestDetail} csrf={csrf} title="최신 검사 결과" />}
         </>
       )}
     </div>
   );
+}
+
+function EmployeeActions({ employee, csrf, historyOpen, onHistory, onChanged }: {
+  employee: Employee;
+  csrf: CsrfToken | null;
+  historyOpen: boolean;
+  onHistory: () => void;
+  onChanged: () => void;
+}) {
+  const [submitting, setSubmitting] = useState(false);
+  const [startedCheckId, setStartedCheckId] = useState<number | null>(null);
+  const [terminating, setTerminating] = useState(false);
+  const current = employee.latestBackgroundCheck;
+  const checkInProgress = startedCheckId !== null || Boolean(current && (
+    current.trackingActive || current.status === 'REQUESTING' || current.status === 'PENDING'
+  ));
+
+  useEffect(() => {
+    if (startedCheckId !== null && current?.id === startedCheckId) setStartedCheckId(null);
+  }, [current?.id, startedCheckId]);
+
+  async function start() {
+    if (submitting || checkInProgress) return;
+    setSubmitting(true);
+    try {
+      const created = await api<Check>(`/api/admin/employees/${employee.id}/background-checks`, { method: 'POST' }, csrf);
+      setStartedCheckId(created.id);
+      onChanged();
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : '검사 접수에 실패했습니다.');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function terminate() {
+    const date = window.prompt('실제 퇴사일을 YYYY-MM-DD 형식으로 입력하세요.');
+    if (!date) return;
+    setTerminating(true);
+    try {
+      await api(`/api/admin/employees/${employee.id}/termination`, {
+        method: 'POST',
+        body: JSON.stringify({ terminationDate: date }),
+      }, csrf);
+      onChanged();
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : '퇴사 처리에 실패했습니다.');
+    } finally {
+      setTerminating(false);
+    }
+  }
+
+  return <div className="employee-actions" onClick={event => event.stopPropagation()}>
+    <button className="secondary small" aria-expanded={historyOpen} onClick={onHistory}>
+      {historyOpen ? '이력 닫기' : '검사 이력'}
+    </button>
+    <button className="small" disabled={submitting || checkInProgress || employee.employmentStatus !== 'ACTIVE'} onClick={() => void start()}>
+      {submitting ? '접수 중…' : checkInProgress ? '검사 중' : '검사 시작'}
+    </button>
+    <button className="danger small" disabled={terminating || employee.employmentStatus !== 'ACTIVE'} onClick={() => void terminate()}>
+      {terminating ? '처리 중…' : '퇴사 처리'}
+    </button>
+  </div>;
 }
 
 function CheckHistory({
