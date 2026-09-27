@@ -1,0 +1,62 @@
+import { useState, type FormEvent } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { api } from '../api';
+import type { CsrfToken, CurrentUser } from '../types';
+
+export function ChangePasswordPage({
+  user,
+  csrf,
+  onChanged,
+}: {
+  user: CurrentUser;
+  csrf: CsrfToken | null;
+  onChanged: () => void;
+}) {
+  const [error, setError] = useState('');
+  const navigate = useNavigate();
+
+  async function submit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setError('');
+    const f = new FormData(e.currentTarget);
+    const next = String(f.get('newPassword'));
+    if (next !== String(f.get('confirmPassword'))) {
+      setError('새 비밀번호 확인이 일치하지 않습니다.');
+      return;
+    }
+    try {
+      await api(
+        '/api/me/password',
+        { method: 'PUT', body: JSON.stringify({ currentPassword: f.get('currentPassword'), newPassword: next }) },
+        csrf,
+      );
+      onChanged();
+      navigate(user.role === 'ADMIN' ? '/admin/employees' : '/me', { replace: true });
+    } catch (x) {
+      setError(x instanceof Error ? x.message : '비밀번호를 변경하지 못했습니다.');
+    }
+  }
+
+  return (
+    <main className="centered">
+      <form className="card form" onSubmit={submit}>
+        <p className="eyebrow">PASSWORD</p>
+        <h1>{user.passwordChangeRequired ? '초기 비밀번호 변경' : '비밀번호 변경'}</h1>
+        <label>
+          현재 비밀번호
+          <input name="currentPassword" type="password" required />
+        </label>
+        <label>
+          새 비밀번호
+          <input name="newPassword" type="password" minLength={8} required />
+        </label>
+        <label>
+          새 비밀번호 확인
+          <input name="confirmPassword" type="password" minLength={8} required />
+        </label>
+        {error && <p className="error">{error}</p>}
+        <button>변경하기</button>
+      </form>
+    </main>
+  );
+}
