@@ -59,7 +59,7 @@ export default function App() {
       <Route
         path="/me"
         element={
-          <Protected user={user}>
+          <Protected user={user} role="EMPLOYEE" redirectTo="/admin/employees">
             <ProfilePage user={user!} onLogout={logout} />
           </Protected>
         }

@@ -5,16 +5,9 @@ ALTER TABLE employee
     ADD COLUMN terminated_at TIMESTAMP(6) NULL AFTER termination_date;
 
 UPDATE employee SET
-    last_name = CASE employee_number
-        WHEN 'EMP-001' THEN '김' WHEN 'EMP-002' THEN '김' WHEN 'EMP-003' THEN '남궁'
-        WHEN 'EMP-004' THEN '황보' WHEN 'EMP-005' THEN '김' WHEN 'EMP-006' THEN '선우'
-        WHEN 'EMP-007' THEN '이' WHEN 'EMP-008' THEN '박' WHEN 'EMP-009' THEN '최'
-        WHEN 'EMP-010' THEN '정' END,
-    first_name = CASE employee_number
-        WHEN 'EMP-001' THEN '민준' WHEN 'EMP-002' THEN '민준' WHEN 'EMP-003' THEN '서준'
-        WHEN 'EMP-004' THEN '라온' WHEN 'EMP-005' THEN '솔' WHEN 'EMP-006' THEN '진'
-        WHEN 'EMP-007' THEN '서연' WHEN 'EMP-008' THEN '민준' WHEN 'EMP-009' THEN '지우'
-        WHEN 'EMP-010' THEN '하윤' END;
+    last_name = '관',
+    first_name = '리자'
+WHERE employee_number = 'EMP-000';
 
 ALTER TABLE employee
     MODIFY COLUMN last_name VARCHAR(50) NOT NULL,

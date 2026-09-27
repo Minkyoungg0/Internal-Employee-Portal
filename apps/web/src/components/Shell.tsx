@@ -21,7 +21,7 @@ export function Shell({
           {user.employeeNumber} · {user.username}
         </p>
         <nav>
-          <Link to="/me">내 정보</Link>
+          {user.role !== 'ADMIN' && <Link to="/me">내 정보</Link>}
           <Link to="/change-password">비밀번호 변경</Link>
           {user.role === 'ADMIN' && <Link to="/admin/employees">직원 관리</Link>}
         </nav>
