@@ -58,8 +58,7 @@ public class BackgroundCheckPoller {
                     check.getId(), updated.getNextPollAt() != null, updated.getNextPollAt());
         } catch (ApiException exception) {
             // Non-retryable application errors keep the last external status.
-            check.stopTracking(exception.getCode());
-            repository.save(check);
+            // Deleted/expired rows must never be saved again from this stale snapshot.
             log.warn("BACKGROUND_CHECK_TRACKING_STOPPED checkId={} errorCode={}",
                     check.getId(), exception.getCode());
         }

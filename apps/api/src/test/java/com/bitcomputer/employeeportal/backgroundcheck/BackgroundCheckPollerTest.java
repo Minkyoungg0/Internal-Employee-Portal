@@ -33,18 +33,17 @@ class BackgroundCheckPollerTest {
         assertEquals(BackgroundCheckStatus.FLAGGED,c.getStatus());
     }
 
-    @Test void retryExhaustionStopsTrackingWithoutChangingPending() {
+    @Test void removedCheckIsNeverSavedByPoller() {
         BackgroundCheckRepository repo=mock(BackgroundCheckRepository.class);
         BackgroundCheckService service=mock(BackgroundCheckService.class);
         BackgroundCheck c=check();
-        when(service.refresh(3L,1L,null)).thenThrow(new ApiException(HttpStatus.BAD_GATEWAY,"BACKGROUND_CHECK_UNAVAILABLE","failure"));
+        when(service.refresh(3L,1L,null)).thenThrow(new ApiException(HttpStatus.BAD_GATEWAY,"BACKGROUND_CHECK_NOT_FOUND","failure"));
         BackgroundCheckPoller poller=new BackgroundCheckPoller(repo,service);
         try {
             poller.poll(c);
-            assertNull(c.getNextPollAt());
+            assertNotNull(c.getNextPollAt());
             assertEquals(BackgroundCheckStatus.PENDING,c.getStatus());
-            assertEquals("BACKGROUND_CHECK_UNAVAILABLE",c.getTrackingStopReason());
-            verify(repo).save(c);
+            verify(repo, never()).save(any());
         } finally { poller.shutdown(); }
     }
 

@@ -22,14 +22,15 @@ public interface BackgroundCheckRepository extends JpaRepository<BackgroundCheck
                    c.nextPollAt as nextPollAt, c.trackingStopReason as trackingStopReason,
                    c.requestedAt as requestedAt
             from BackgroundCheck c
-            where not exists (select newer.id from BackgroundCheck newer
-                where newer.employee.id = c.employee.id
+            where c.expiresAt > :now and c.employee.employmentStatus = com.bitcomputer.employeeportal.employee.EmploymentStatus.ACTIVE
+            and not exists (select newer.id from BackgroundCheck newer
+                where newer.employee.id = c.employee.id and newer.expiresAt > :now
                 and (newer.requestedAt > c.requestedAt
                      or (newer.requestedAt = c.requestedAt and newer.id > c.id)))
             """)
-    List<LatestStatus> findLatestStatuses();
+    List<LatestStatus> findLatestStatuses(@Param("now") java.time.Instant now);
 
-    @Query("select c from BackgroundCheck c join fetch c.employee where c.nextPollAt <= :now order by c.nextPollAt")
+    @Query("select c from BackgroundCheck c join fetch c.employee where c.nextPollAt <= :now and c.expiresAt > :now and c.employee.employmentStatus = com.bitcomputer.employeeportal.employee.EmploymentStatus.ACTIVE order by c.nextPollAt")
     List<BackgroundCheck> findDue(@Param("now") java.time.Instant now, org.springframework.data.domain.Pageable pageable);
 
     List<BackgroundCheck> findAllByEmployeeIdOrderByRequestedAtDesc(Long employeeId);
@@ -39,5 +40,15 @@ public interface BackgroundCheckRepository extends JpaRepository<BackgroundCheck
     @Query("select c from BackgroundCheck c where c.id = :id and c.employee.id = :employeeId")
     Optional<BackgroundCheck> findForUpdate(@Param("id") Long id, @Param("employeeId") Long employeeId);
 
-    boolean existsByEmployeeIdAndStatusIn(Long employeeId, Collection<BackgroundCheckStatus> statuses);
+    @org.springframework.data.jpa.repository.Modifying
+    @Query("delete from BackgroundCheck c where c.employee.id = :employeeId")
+    int deleteForEmployee(@Param("employeeId") Long employeeId);
+
+    @org.springframework.data.jpa.repository.Modifying
+    @Query(value = "DELETE FROM background_check WHERE expires_at <= :now ORDER BY expires_at LIMIT 200", nativeQuery = true)
+    int deleteExpiredBatch(@Param("now") java.time.Instant now);
+
+    @Query("select count(c) > 0 from BackgroundCheck c where c.employee.id = :employeeId and c.status in :statuses and c.expiresAt > :now")
+    boolean existsActive(@Param("employeeId") Long employeeId, @Param("statuses") Collection<BackgroundCheckStatus> statuses, @Param("now") java.time.Instant now);
+
 }

@@ -24,32 +24,29 @@ public class BackgroundCheckService {
     private final EmployeeRepository employeeRepository;
     private final BackgroundCheckRepository repository;
     private final BackgroundCheckClient client;
+    private final org.springframework.transaction.support.TransactionTemplate transactions;
     @org.springframework.beans.factory.annotation.Value("${background-check.retry-budget:180s}")
     private java.time.Duration retryBudget = java.time.Duration.ofSeconds(180);
 
     public BackgroundCheckService(EmployeeRepository employeeRepository, BackgroundCheckRepository repository,
-                                  BackgroundCheckClient client) {
+                                  BackgroundCheckClient client, org.springframework.transaction.PlatformTransactionManager transactionManager) {
         this.employeeRepository = employeeRepository;
         this.repository = repository;
         this.client = client;
+        this.transactions = new org.springframework.transaction.support.TransactionTemplate(transactionManager);
     }
 
     public synchronized BackgroundCheck start(Long employeeId, Long actorAccountId) {
         log.info("BACKGROUND_CHECK_START_REQUESTED employeeId={} actorAccountId={}", employeeId, actorAccountId);
-        Employee employee = employeeRepository.findById(employeeId)
-                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "EMPLOYEE_NOT_FOUND", "직원을 찾을 수 없습니다."));
-        if (employee.getDateOfBirth() == null) {
-            log.warn("BACKGROUND_CHECK_START_REJECTED employeeId={} actorAccountId={} errorCode=DATE_OF_BIRTH_REQUIRED",
-                    employeeId, actorAccountId);
-            throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "DATE_OF_BIRTH_REQUIRED", "생년월일이 확인되지 않아 검사를 시작할 수 없습니다.");
-        }
-        if (repository.existsByEmployeeIdAndStatusIn(employeeId, ACTIVE_STATUSES)) {
-            log.warn("BACKGROUND_CHECK_START_REJECTED employeeId={} actorAccountId={} errorCode=BACKGROUND_CHECK_IN_PROGRESS",
-                    employeeId, actorAccountId);
-            throw new ApiException(HttpStatus.CONFLICT, "BACKGROUND_CHECK_IN_PROGRESS", "이미 진행 중이거나 제출 확인이 필요한 검사가 있습니다.");
-        }
-
-        BackgroundCheck check = repository.save(new BackgroundCheck(employee, Instant.now()));
+        BackgroundCheck check = transactions.execute(tx -> {
+            Employee employee = lockActiveEmployee(employeeId);
+            if (employee.getDateOfBirth() == null)
+                throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "DATE_OF_BIRTH_REQUIRED", "생년월일이 확인되지 않아 검사를 시작할 수 없습니다.");
+            if (repository.existsActive(employeeId, ACTIVE_STATUSES, Instant.now()))
+                throw new ApiException(HttpStatus.CONFLICT, "BACKGROUND_CHECK_IN_PROGRESS", "이미 진행 중이거나 제출 확인이 필요한 검사가 있습니다.");
+            return repository.save(new BackgroundCheck(employee, Instant.now()));
+        });
+        Employee employee = check.getEmployee();
         try {
             ExternalBackgroundCheck result = client.create(check.getId(), employeeId, employee.getEmployeeNumber(), employee.getFirstName(),
                     employee.getLastName(), employee.getDateOfBirth());
@@ -75,7 +72,7 @@ public class BackgroundCheckService {
             log.warn("BACKGROUND_CHECK_STATUS_CHANGED checkId={} employeeId={} actorAccountId={} previousStatus=REQUESTING newStatus=SUBMISSION_UNKNOWN errorType=InterruptedException",
                     check.getId(), employeeId, actorAccountId);
         }
-        return repository.save(check);
+        return persistOutcome(employeeId, check);
     }
 
     public BackgroundCheck refresh(Long employeeId, Long checkId, Long actorAccountId) {
@@ -86,7 +83,7 @@ public class BackgroundCheckService {
                 : java.time.Duration.between(now, check.getRetryDeadlineAt());
         if (remaining != null && (remaining.isNegative() || remaining.isZero())) {
             check.stopTracking("RETRY_TIME_EXHAUSTED");
-            return repository.save(check);
+            return persistOutcome(employeeId, check);
         }
         try {
             ExternalBackgroundCheck result = client.get(checkId, employeeId, check.getExternalCheckId(), remaining);
@@ -119,13 +116,15 @@ public class BackgroundCheckService {
         }
         log.info("BACKGROUND_CHECK_POLL_STATE checkId={} status={} trackingActive={} stopReason={}",
                 checkId, check.getStatus(), check.getNextPollAt() != null, check.getTrackingStopReason());
-        return repository.save(check);
+        return persistOutcome(employeeId, check);
     }
 
     @Transactional
     public BackgroundCheck retry(Long employeeId, Long checkId, Long actorAccountId) {
+        lockActiveEmployee(employeeId);
         BackgroundCheck check = repository.findForUpdate(checkId, employeeId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "BACKGROUND_CHECK_NOT_FOUND", "검사 이력을 찾을 수 없습니다."));
+        ensureUsable(check);
         if (check.getExternalCheckId() == null)
             throw new ApiException(HttpStatus.CONFLICT, "CHECK_ID_UNAVAILABLE", "외부 검사 식별자가 없어 재시도할 수 없습니다.");
         if (check.getNextPollAt() != null) return check;
@@ -139,18 +138,52 @@ public class BackgroundCheckService {
     @Transactional(readOnly = true)
     public List<BackgroundCheck> list(Long employeeId) {
         ensureEmployee(employeeId);
-        return repository.findAllByEmployeeIdOrderByRequestedAtDesc(employeeId);
+        return repository.findAllByEmployeeIdOrderByRequestedAtDesc(employeeId).stream()
+                .filter(c -> !c.isExpired(Instant.now())).toList();
     }
 
     @Transactional(readOnly = true)
     public BackgroundCheck find(Long employeeId, Long checkId) {
-        return repository.findByIdAndEmployeeId(checkId, employeeId)
+        BackgroundCheck check = repository.findByIdAndEmployeeId(checkId, employeeId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "BACKGROUND_CHECK_NOT_FOUND", "검사 이력을 찾을 수 없습니다."));
+        ensureUsable(check);
+        return check;
     }
 
     private void ensureEmployee(Long id) {
-        if (!employeeRepository.existsById(id))
-            throw new ApiException(HttpStatus.NOT_FOUND, "EMPLOYEE_NOT_FOUND", "직원을 찾을 수 없습니다.");
+        Employee employee = employeeRepository.findById(id)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "EMPLOYEE_NOT_FOUND", "직원을 찾을 수 없습니다."));
+        ensureActive(employee);
+    }
+
+    private Employee lockActiveEmployee(Long id) {
+        Employee employee = employeeRepository.findByIdForUpdate(id)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "EMPLOYEE_NOT_FOUND", "직원을 찾을 수 없습니다."));
+        ensureActive(employee);
+        return employee;
+    }
+
+    private void ensureActive(Employee employee) {
+        if (employee.getEmploymentStatus() != com.bitcomputer.employeeportal.employee.EmploymentStatus.ACTIVE)
+            throw new ApiException(HttpStatus.GONE, "EMPLOYEE_TERMINATED", "퇴사한 직원의 검사는 이용할 수 없습니다.");
+    }
+
+    private void ensureUsable(BackgroundCheck check) {
+        ensureActive(check.getEmployee());
+        if (check.isExpired(Instant.now()))
+            throw new ApiException(HttpStatus.GONE, "BACKGROUND_CHECK_EXPIRED", "보관기간이 만료된 검사입니다.");
+    }
+
+    private BackgroundCheck persistOutcome(Long employeeId, BackgroundCheck snapshot) {
+        return transactions.execute(tx -> {
+            lockActiveEmployee(employeeId);
+            BackgroundCheck current = repository.findForUpdate(snapshot.getId(), employeeId)
+                    .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "BACKGROUND_CHECK_NOT_FOUND", "검사 이력을 찾을 수 없습니다."));
+            ensureUsable(current);
+            current.copyOutcomeFrom(snapshot);
+            ensureUsable(current);
+            return current;
+        });
     }
 
     private void validateIdentity(Employee employee, ExternalBackgroundCheck result) throws IOException {

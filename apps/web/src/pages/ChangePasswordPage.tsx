@@ -1,3 +1,4 @@
+import { PasswordInput } from '../components/PasswordInput';
 import { useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
@@ -47,17 +48,20 @@ export function ChangePasswordPage({
           <h1>{user.passwordChangeRequired ? '초기 비밀번호 변경' : '비밀번호 변경'}</h1>
           <form className="card form" onSubmit={submit}>
           <p className="eyebrow">PASSWORD</p>
+          {user.passwordChangeRequired && (
+            <p className="muted password-notice">첫 로그인입니다. 보안을 위해 초기 비밀번호를 변경해 주세요.</p>
+          )}
           <label>
             현재 비밀번호
-            <input name="currentPassword" type="password" required />
+            <PasswordInput name="currentPassword"  required />
           </label>
           <label>
             새 비밀번호
-            <input name="newPassword" type="password" minLength={8} required />
+            <PasswordInput name="newPassword"  minLength={8} required />
           </label>
           <label>
             새 비밀번호 확인
-            <input name="confirmPassword" type="password" minLength={8} required />
+            <PasswordInput name="confirmPassword"  minLength={8} required />
           </label>
           {error && <p className="error">{error}</p>}
             <button>변경하기</button>

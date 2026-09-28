@@ -35,16 +35,20 @@ class BackgroundCheckServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new BackgroundCheckService(employeeRepository, repository, client);
+        service = new BackgroundCheckService(employeeRepository, repository, client, org.mockito.Mockito.mock(org.springframework.transaction.PlatformTransactionManager.class));
         employee = new Employee("EMP-003", "남궁", "서준", LocalDate.of(1988, 7, 21), EmploymentStatus.ACTIVE);
         ReflectionTestUtils.setField(employee, "id", 3L);
     }
 
     @Test
     void sendsStoredSeparatedNameAndKeepsPendingRequest() throws Exception {
-        when(employeeRepository.findById(3L)).thenReturn(Optional.of(employee));
-        when(repository.existsByEmployeeIdAndStatusIn(any(), any())).thenReturn(false);
-        when(repository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(employeeRepository.findByIdForUpdate(3L)).thenReturn(Optional.of(employee));
+        when(repository.existsActive(any(), any(), any())).thenReturn(false);
+        when(repository.save(any())).thenAnswer(invocation -> {
+            BackgroundCheck check = invocation.getArgument(0);
+            when(repository.findForUpdate(null, 3L)).thenReturn(Optional.of(check));
+            return check;
+        });
         when(client.create(null, 3L, "EMP-003", "서준", "남궁", LocalDate.of(1988, 7, 21)))
                 .thenReturn(new ExternalBackgroundCheck("CHK-1", "EMP-003", "pending", null, null, null, null, null));
 
@@ -60,7 +64,7 @@ class BackgroundCheckServiceTest {
     void rejectsEmployeeWithoutDateOfBirthBeforeExternalCall() throws Exception {
         employee = new Employee("EMP-007", "이", "서연", null, EmploymentStatus.ACTIVE);
         ReflectionTestUtils.setField(employee, "id", 7L);
-        when(employeeRepository.findById(7L)).thenReturn(Optional.of(employee));
+        when(employeeRepository.findByIdForUpdate(7L)).thenReturn(Optional.of(employee));
 
         ApiException exception = assertThrows(ApiException.class, () -> service.start(7L, 2L));
 

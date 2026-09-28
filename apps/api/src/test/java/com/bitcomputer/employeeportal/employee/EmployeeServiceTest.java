@@ -15,8 +15,9 @@ class EmployeeServiceTest {
     void repeatedTerminationKeepsOriginalDatesAndDisablesAccount() {
         var employees = mock(EmployeeRepository.class);
         var accounts = mock(EmployeeAccountRepository.class);
+        var checks = mock(BackgroundCheckRepository.class);
         var service = new EmployeeService(employees, accounts, mock(PasswordEncoder.class),
-                mock(BackgroundCheckRepository.class));
+                checks);
         var employee = new Employee("EMP-001", "김", "민준", null, EmploymentStatus.ACTIVE);
         var account = new EmployeeAccount(employee, "employee", "hash", AccountRole.EMPLOYEE, false);
         when(employees.findByIdForUpdate(1L)).thenReturn(Optional.of(employee));
@@ -25,6 +26,8 @@ class EmployeeServiceTest {
         var repeated = service.terminate(1L, new TerminationRequest(LocalDate.of(2026, 9, 28)));
         assertThat(repeated.terminationDate()).isEqualTo(first.terminationDate());
         assertThat(repeated.terminatedAt()).isEqualTo(first.terminatedAt());
+        verify(checks, times(2)).deleteForEmployee(1L);
+        assertThat(employee.getLastName() + employee.getFirstName()).isEqualTo("김민준");
         assertThat(account.isEnabled()).isFalse();
         assertThat(repeated.employmentStatus()).isEqualTo(EmploymentStatus.TERMINATED);
     }

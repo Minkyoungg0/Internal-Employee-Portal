@@ -15,7 +15,8 @@ import org.springframework.test.util.ReflectionTestUtils;
 class BackgroundCheckRetryTest {
     BackgroundCheckRepository repository = mock(BackgroundCheckRepository.class);
     BackgroundCheckClient client = mock(BackgroundCheckClient.class);
-    BackgroundCheckService service = new BackgroundCheckService(mock(EmployeeRepository.class), repository, client);
+    EmployeeRepository employees = mock(EmployeeRepository.class);
+    BackgroundCheckService service = new BackgroundCheckService(employees, repository, client, org.mockito.Mockito.mock(org.springframework.transaction.PlatformTransactionManager.class));
 
     BackgroundCheck check() {
         Employee employee = new Employee("EMP-003", "남궁", "서준", LocalDate.of(1988,7,21), EmploymentStatus.ACTIVE);
@@ -24,7 +25,8 @@ class BackgroundCheckRetryTest {
         ReflectionTestUtils.setField(c,"id",1L);
         c.submitted(new ExternalBackgroundCheck("CHK-existing","EMP-003","pending",null,null,null,null,null),Instant.now());
         when(repository.findByIdAndEmployeeId(1L,3L)).thenReturn(Optional.of(c));
-        when(repository.save(any())).thenAnswer(i->i.getArgument(0));
+        when(employees.findByIdForUpdate(3L)).thenReturn(Optional.of(employee));
+        when(repository.findForUpdate(1L,3L)).thenReturn(Optional.of(c));
         return c;
     }
 

@@ -51,7 +51,7 @@ public class EmployeeService {
     }
 
     public List<EmployeeSummary> list() {
-        var latest = checkRepository.findLatestStatuses().stream().collect(
+        var latest = checkRepository.findLatestStatuses(Instant.now(clock)).stream().collect(
                 java.util.stream.Collectors.toMap(BackgroundCheckRepository.LatestStatus::getEmployeeId, LatestCheck::from));
         return employeeRepository.findAllNonAdminEmployeesOrderByEmployeeNumberAsc().stream()
                 .map(e -> EmployeeSummary.from(e, latest.get(e.getId()))).toList();
@@ -72,6 +72,7 @@ public class EmployeeService {
             employee.terminate(request.terminationDate(), Instant.now(clock).truncatedTo(ChronoUnit.MICROS));
             if (account != null) account.disable();
         }
+        checkRepository.deleteForEmployee(id);
         return EmployeeDetail.from(employee, account);
     }
 

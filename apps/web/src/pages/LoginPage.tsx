@@ -1,3 +1,4 @@
+import { PasswordInput } from '../components/PasswordInput';
 import { useState, type FormEvent } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { fetchCsrf, readError } from '../api';
@@ -66,7 +67,7 @@ export function LoginPage({
         </label>
         <label>
           비밀번호
-          <input name="password" type="password" autoComplete="current-password" required />
+          <PasswordInput name="password"  autoComplete="current-password" required />
         </label>
         {error && <p className="error">{error}</p>}
         <button disabled={busy}>{busy ? '로그인 중…' : '로그인'}</button>

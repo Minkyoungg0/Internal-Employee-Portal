@@ -29,6 +29,7 @@ public class BackgroundCheck {
     @Column(name = "credit_score", length = 20) private String creditScore;
     @Column(name = "requested_at", nullable = false) private Instant requestedAt;
     @Column(name = "completed_at") private Instant completedAt;
+    @Column(name = "expires_at", nullable = false) private Instant expiresAt;
     @Column(name = "last_checked_at") private Instant lastCheckedAt;
 
     @Column(name = "next_poll_at") private Instant nextPollAt;
@@ -63,6 +64,7 @@ public class BackgroundCheck {
         this.submittedDateOfBirth = employee.getDateOfBirth();
         this.status = BackgroundCheckStatus.REQUESTING;
         this.requestedAt = now;
+        this.expiresAt = retentionExpiry(now);
     }
 
     public void submitted(ExternalBackgroundCheck result, Instant checkedAt) {
@@ -95,12 +97,40 @@ public class BackgroundCheck {
             educationVerified = result.educationVerified();
             employmentVerified = result.employmentVerified();
             creditScore = result.creditScore();
-            completedAt = result.completedAt() == null ? checkedAt : result.completedAt();
+            if (completedAt == null) {
+                completedAt = result.completedAt() == null ? checkedAt : result.completedAt();
+                expiresAt = retentionExpiry(completedAt);
+            }
         }
     }
 
     public void submissionUnknown() { status = BackgroundCheckStatus.SUBMISSION_UNKNOWN; }
     public void submissionFailed() { status = BackgroundCheckStatus.SUBMISSION_FAILED; }
+
+    // Retention is measured in Korean calendar dates, expiring at midnight on day 90.
+    private static Instant retentionExpiry(Instant base) {
+        java.time.ZoneId zone = java.time.ZoneId.of("Asia/Seoul");
+        return base.atZone(zone).toLocalDate().plusDays(90).atStartOfDay(zone).toInstant();
+    }
+
+    public Instant getExpiresAt() { return expiresAt; }
+    public boolean isExpired(Instant now) { return !expiresAt.isAfter(now); }
+
+    // Copy only the outcome into an existing, locked row; never merge an in-flight snapshot.
+    public void copyOutcomeFrom(BackgroundCheck source) {
+        externalCheckId = source.externalCheckId;
+        status = source.status;
+        criminalRecord = source.criminalRecord;
+        educationVerified = source.educationVerified;
+        employmentVerified = source.employmentVerified;
+        creditScore = source.creditScore;
+        completedAt = source.completedAt;
+        expiresAt = source.expiresAt;
+        lastCheckedAt = source.lastCheckedAt;
+        nextPollAt = source.nextPollAt;
+        trackingStopReason = source.trackingStopReason;
+        retryDeadlineAt = source.retryDeadlineAt;
+    }
 
     public Long getId() { return id; }
     public Employee getEmployee() { return employee; }

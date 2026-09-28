@@ -1,6 +1,7 @@
+import { PasswordInput } from '../components/PasswordInput';
 import { Fragment, useEffect, useState, type FormEvent } from 'react';
 import { Shell } from '../components/Shell';
-import { api } from '../api';
+import { api, RequestError } from '../api';
 import { usePolling } from '../hooks/usePolling';
 import type {
   BackgroundCheckStatus,
@@ -18,6 +19,10 @@ const CHANGE_LABEL = { PENDING: '승인 대기', APPROVED: '승인 완료', REJE
 
 function formatDateTime(value: string | null | undefined) {
   return value ? new Intl.DateTimeFormat('ko-KR', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) : '-';
+}
+
+function formatRetentionDate(value: string) {
+  return new Intl.DateTimeFormat('ko-KR', { dateStyle: 'medium', timeZone: 'Asia/Seoul' }).format(new Date(value));
 }
 
 function resultText(value: boolean | null) {
@@ -98,7 +103,7 @@ function EmployeeCreateForm({ csrf, onCreated }: { csrf: CsrfToken | null; onCre
         </label>
         <label>
           초기 비밀번호
-          <input name="initialPassword" type="password" minLength={8} required />
+          <PasswordInput name="initialPassword"  minLength={8} required />
         </label>
       </div>
       {error && <p className="error">{error}</p>}
@@ -139,7 +144,6 @@ export function EmployeesPage({
       }} />
       <section className="card table-card">
         <h2>전체 직원</h2>
-        <p className="muted">가장 최근에 시작한 검사 상태입니다. 5초마다 자동 갱신됩니다.</p>
         {error && <p className="error">{error}</p>}
         <table>
           <thead>
@@ -255,7 +259,9 @@ function CheckHistoryModal({ employee, csrf, onClose }: {
         <button className="secondary small" aria-label="검사 이력 닫기" onClick={onClose}>닫기</button>
       </div>
       <div className="modal-content">
-        <CheckHistory employeeId={employee.id} csrf={csrf} latestId={employee.latestBackgroundCheck?.id} />
+        {employee.employmentStatus === 'ACTIVE'
+          ? <CheckHistory employeeId={employee.id} csrf={csrf} latestId={employee.latestBackgroundCheck?.id} />
+          : <p>퇴사 처리로 검사 정보가 삭제되었습니다.</p>}
       </div>
     </section>
   </div>;
@@ -298,13 +304,18 @@ function EmployeePanel({
       {error && <p className="error">{error}</p>}
       {employee && (
         <>
-          <div className="row"><div><h2>{employee.fullName}</h2><p>{employee.employeeNumber} · {employee.account?.username}</p></div></div>
-          {employee.terminationDate && (
-            <p>
-              실제 퇴사일 {employee.terminationDate} · 처리 시각 {formatDateTime(employee.terminatedAt)}
-            </p>
-          )}
-          {latestDetail && <CheckResult employeeId={id} initial={latestDetail} csrf={csrf} title="검사 결과" />}
+          {employee.terminationDate && <section className="detail-section">
+            <h3>퇴사 정보</h3>
+              <div className="termination-info">
+                <div><span>퇴사일</span><strong>{employee.terminationDate}</strong></div>
+                <div><span>처리 시각</span><strong>{formatDateTime(employee.terminatedAt)}</strong></div>
+              </div>
+          </section>}
+          <section className="detail-section">
+            <h3>검사 결과</h3>
+            {latestDetail ? <CheckResult employeeId={id} initial={latestDetail} csrf={csrf} />
+              : !latest && <p className="muted">검사 결과가 없습니다.</p>}
+          </section>
         </>
       )}
     </div>
@@ -363,7 +374,7 @@ function EmployeeActions({ employee, csrf, historyOpen, onHistory, onChangeHisto
   }
 
   return <div className="employee-actions" onClick={event => event.stopPropagation()}>
-    <button className="secondary small" aria-expanded={historyOpen} onClick={onHistory}>
+    <button className="secondary small" disabled={employee.employmentStatus !== 'ACTIVE'} aria-expanded={historyOpen} onClick={onHistory}>
       {historyOpen ? '이력 닫기' : '검사 이력'}
     </button>
     <button className="secondary small" onClick={onChangeHistory}>정보 변경 이력</button>
@@ -408,7 +419,7 @@ function CheckHistory({
 
   return (
     <div className="panel">
-      <h3>검사 이력</h3>
+      <p className="muted">완료일 기준 90일 후 삭제되며, 퇴사 시 즉시 삭제됩니다.</p>
       {error && <p className="error">{error}</p>}
       {loading ? (
         <p className="muted">이력을 불러오는 중…</p>
@@ -424,6 +435,7 @@ function CheckHistory({
 function CheckResult({ employeeId, initial, csrf, title }: { employeeId: number; initial: Check; csrf: CsrfToken | null; title?: string }) {
   const [revision, setRevision] = useState(0);
   const [retrying, setRetrying] = useState(false);
+  const [unavailable, setUnavailable] = useState(false);
 
   const {
     data: check,
@@ -431,7 +443,14 @@ function CheckResult({ employeeId, initial, csrf, title }: { employeeId: number;
     error,
     setError,
   } = usePolling<Check>(
-    signal => api<Check>(`/api/admin/employees/${employeeId}/background-checks/${initial.id}`, { signal }),
+    async signal => {
+      try {
+        return await api<Check>(`/api/admin/employees/${employeeId}/background-checks/${initial.id}`, { signal });
+      } catch (e) {
+        if (!signal.aborted && e instanceof RequestError && (e.status === 404 || e.status === 410)) setUnavailable(true);
+        throw e;
+      }
+    },
     {
       intervalMs: 5000,
       initialData: initial,
@@ -440,6 +459,17 @@ function CheckResult({ employeeId, initial, csrf, title }: { employeeId: number;
     },
     [employeeId, initial, revision],
   );
+
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout>;
+    function checkExpiry() {
+      const remaining = new Date(check.expiresAt).getTime() - Date.now();
+      if (remaining <= 0) setUnavailable(true);
+      else timer = setTimeout(checkExpiry, Math.min(remaining, 2_147_483_647));
+    }
+    checkExpiry();
+    return () => clearTimeout(timer);
+  }, [check.expiresAt]);
 
   async function retry() {
     if (retrying) return;
@@ -454,11 +484,14 @@ function CheckResult({ employeeId, initial, csrf, title }: { employeeId: number;
       setCheck(updated);
       setRevision(value => value + 1);
     } catch (e) {
+      if (e instanceof RequestError && (e.status === 404 || e.status === 410)) setUnavailable(true);
       setError(e instanceof Error ? e.message : '재시도 요청에 실패했습니다.');
     } finally {
       setRetrying(false);
     }
   }
+
+  if (unavailable) return <p className="muted">보관 중인 검사 결과가 없습니다.</p>;
 
   return (
     <article className="check">
@@ -480,6 +513,7 @@ function CheckResult({ employeeId, initial, csrf, title }: { employeeId: number;
         <tr><th>경력 확인</th><td>{verifiedText(check.result.employmentVerified)}</td></tr>
         <tr><th>신용 점수</th><td>{check.result.creditScore ?? '확인되지 않음'}</td></tr>
         <tr><th>완료 시각</th><td>{formatDateTime(check.completedAt)}</td></tr>
+        <tr><th>삭제 예정일</th><td>{formatRetentionDate(check.expiresAt)}</td></tr>
       </tbody></table>}
     </article>
   );
@@ -526,7 +560,7 @@ function ChangeRequestManagement({ csrf, revision, onChanged }: {
 
   return <section className="card table-card">
     <div className="row">
-      <div><h2>승인 대기 인적사항 변경 요청</h2></div>
+      <div><h2>인적사항 변경 요청</h2></div>
       <button className="secondary small" disabled={refreshing} onClick={() => void load()}>
         {refreshing ? '새로고침 중…' : '새로고침'}
       </button>

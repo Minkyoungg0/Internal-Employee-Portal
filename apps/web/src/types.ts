@@ -85,4 +85,5 @@ export type Check = CheckStatusLike & {
   requestedAt: string;
   completedAt: string | null;
   lastCheckedAt: string | null;
+  expiresAt: string;
 };
