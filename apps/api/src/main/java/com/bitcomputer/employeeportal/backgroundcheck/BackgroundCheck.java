@@ -70,11 +70,11 @@ public class BackgroundCheck {
     public void submitted(ExternalBackgroundCheck result, Instant checkedAt) {
         this.externalCheckId = result.checkId();
         apply(result, checkedAt);
-        // POST can report completion without detailed result fields.
-        if (result.criminalRecord() == null || result.educationVerified() == null
-                || result.employmentVerified() == null || result.creditScore() == null) {
-            schedulePoll(checkedAt.plusSeconds(15));
-        }
+        // POST가 최종 상태를 반환하면 상세 결과를 최신 GET으로 즉시 확인한다.
+        // 아직 pending이면 외부 검사가 진행 중이므로 15초 뒤에 확인한다.
+        schedulePoll(result.status().equalsIgnoreCase("pending")
+                ? checkedAt.plusSeconds(15)
+                : checkedAt);
     }
 
     public void apply(ExternalBackgroundCheck result, Instant checkedAt) {

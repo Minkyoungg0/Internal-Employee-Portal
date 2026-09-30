@@ -7,6 +7,8 @@ import com.bitcomputer.employeeportal.backgroundcheck.client.BackgroundCheckClie
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -17,6 +19,7 @@ import com.bitcomputer.employeeportal.employee.EmployeeRepository;
 import com.bitcomputer.employeeportal.employee.EmploymentStatus;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.Duration;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -73,14 +76,18 @@ class BackgroundCheckServiceTest {
     }
 
     @Test
-    void completedResultIsReturnedWithoutCallingExternalApiAgain() throws Exception {
+    void completedPostResultIsRefreshedThroughExternalApiGet() throws Exception {
         BackgroundCheck check = new BackgroundCheck(employee, Instant.now());
         check.submitted(new ExternalBackgroundCheck("CHK-1", "EMP-003", "clear", false, true, true, "good", Instant.now()), Instant.now());
         when(repository.findByIdAndEmployeeId(8L, 3L)).thenReturn(Optional.of(check));
+        when(employeeRepository.findByIdForUpdate(3L)).thenReturn(Optional.of(employee));
+        when(repository.findForUpdate(any(), eq(3L))).thenReturn(Optional.of(check));
+        when(client.get(any(), any(), any(), nullable(Duration.class)))
+                .thenReturn(new ExternalBackgroundCheck("CHK-1", "EMP-003", "clear", false, true, true, "good", Instant.now()));
 
         BackgroundCheck result = service.refresh(3L, 8L, 2L);
 
         assertEquals(BackgroundCheckStatus.CLEAR, result.getStatus());
-        verify(client, never()).get(any(), any(), any(), any());
+        verify(client).get(any(), any(), any(), nullable(Duration.class));
     }
 }
